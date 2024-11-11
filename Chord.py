@@ -82,6 +82,7 @@ class ChordNetwork:
         
         # Remove node and reassign successors/predecessors
         node.set_active_status(False)
+        node.reset_timer()
         self.remove_node(node)
         
         self.update_all_finger_tables()
