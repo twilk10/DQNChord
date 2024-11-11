@@ -102,7 +102,7 @@ class ChordNetwork:
                 modulo_idx = i % len(self.graph) # modulo index to ensure wrap around
                 # print(f'\t i is :{i},  modulo_idx is { modulo_idx}')
                 new_successors_list.append(self.graph[modulo_idx].id)
-                node.finger_table['successors']= new_successors_list
+            node.finger_table['successors']= new_successors_list
 
         # Display network to check that all tables were updated accordingly
         graph_list = []
