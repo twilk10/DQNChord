@@ -1,151 +1,96 @@
-from threading import Thread
-import time
-from typing import List, Dict, Optional
-from Node import Node
 import random
-from enum import Enum
+import time
+import threading
 
-class ChurnRateTimer(Enum):
-    LOW = 20
-    MEDIUM = 50
-    HIGH = 100
+class Node:
+    def __init__(self, identifier):
+        self.identifier = identifier
+        self.data_keys = set()  # Set of data keys managed by this node
 
-class ChordNetwork:
-    def __init__(self, size, r, bank_size):
-        self.size = size
-        self.r = r # number of successor nodes a node can have
-        self.node_bank: Dict[int, Node] = self.initialize_node_bank(bank_size)
-        self.graph: List[Node] = self.initialize_graph(size, r)
-        
-        self.timer_thread = Thread(target=self.update_timers)
-        self.timer_thread.start()
-    
-    def initialize_node_bank(self, bank_size):
-        print('Initializing node bank...')
-        bank = {}
-        for i in range(bank_size):
-            if i not in bank:
-                timer = self.random_churn_rate()
-                node = Node(id=i, ttl=timer, active_status=False)
-                bank[node.id] = node
-        return bank
+    def __repr__(self):
+        return f"Node({self.identifier}, Data: {sorted(self.data_keys)})"
 
-    def initialize_graph(self, size, r):
-        print('Initializing graph...')
-        graph = []
-        for i in range(size):
-            node = self.node_bank[i]
-            node.set_active_status(True)
-            self.assign_initial_successors_and_predecessors(node, size, r)
-            graph.append(node)
-        return graph 
-      
-    def assign_initial_successors_and_predecessors(self, node: Node, size, r):
-        # Successor assignment
-        for j in range(1, r+1):
-            successor_id = (node.id + j) % size
-            node.finger_table['successors'].append(successor_id)
+class ChordRing:
+    def __init__(self, total_nodes=16, max_identifier=16):
+        self.nodes = []  # List of active nodes in the ring
+        self.node_bank = []  # List of all potential node IDs (0 to max_identifier - 1)
+        self.max_identifier = max_identifier
 
-        # Predecessor assignment
-        predecessor_id = (node.id - 1) % size
-        node.finger_table['predecessors'].append(predecessor_id)
+        # Initialize node bank with all possible identifiers
+        for i in range(max_identifier):
+            self.node_bank.append(i)
 
-    def update_timers(self):
-        while True:
-            for node in self.node_bank.values():
-                node.ttl -= 1
-                if node.ttl <= 0:
-                    if node.is_active:
-                        print(f"Node {node.id} is attempting to leave the network...")
-                        self.leave_network(node)
-                    else:
-                        print(f"Node {node.id} is attempting to join the network...")
-                        self.join_network(node)
-            time.sleep(1)
+        # Create initial nodes
+        for _ in range(total_nodes):
+            self.join_node()
 
-    def join_network(self, node:Node):
-        if node in self.graph:
-            print(f"Node {node.id} is already in the network. Cannot add to network")
-            return
-        
-        node.set_active_status(True)
-        node.reset_timer()
-        self.add_node(node)
+    def find_predecessor(self, node_id):
+        """Finds the predecessor of a given node ID in the sorted list of nodes."""
+        if len(self.nodes) == 1:
+            return self.nodes[0]
 
-        self.update_all_finger_tables()
-        print(f"Node {node.id} has joined the network. \n")
+        for i in range(len(self.nodes)):
+            if self.nodes[i].identifier == node_id:
+                return self.nodes[i - 1] if i > 0 else self.nodes[-1]
 
-    def leave_network(self, node: Node):
-        if node not in self.graph:
-            print(f"\t Node {node.id} is not in the network. Cannot remove from network")
-            return
-        
-        # Remove node and reassign successors/predecessors
-        node.set_active_status(False)
-        node.reset_timer()
-        self.remove_node(node)
-        
-        self.update_all_finger_tables()
-        print(f"Node {node.id} has left the network. \n")
+        return None
 
-    def update_all_finger_tables(self):
-        print('updating finger tables ...')
-        for idx, node in enumerate(self.graph):
-            # update predecessor
-            predecessor_node = self.graph[idx - 1] # we can use negative numbers to wrap around an array in python
-            node.finger_table['predecessors']= [predecessor_node.id]
+    def join_node(self):
+        if self.node_bank:
+            new_node_id = self.node_bank.pop(random.randint(0, len(self.node_bank) - 1))
+            new_node = Node(new_node_id)
 
-            # update successors
-            # print('idx is:', idx)
-            new_successors_list = []
-            for i in range(idx + 1, (idx + self.r + 1)):
-                modulo_idx = i % len(self.graph) # modulo index to ensure wrap around
-                # print(f'\t i is :{i},  modulo_idx is { modulo_idx}')
-                new_successors_list.append(self.graph[modulo_idx].id)
-            node.finger_table['successors']= new_successors_list
+            # Assign initial data to the new node (correlating to its identifier)
+            new_node.data_keys.add(new_node_id)
 
-        # Display network to check that all tables were updated accordingly
-        graph_list = []
-        for node in self.graph:
-            graph_list.append(str(node.id))
-        print('After updating finger table, graph list is:', '->'.join(graph_list))
-        # self.display_network()
+            # Inherit data keys from its predecessor
+            predecessor = self.find_predecessor(new_node_id)
+            if predecessor:
+                inherited_keys = {key for key in predecessor.data_keys if key <= new_node_id}
+                new_node.data_keys.update(inherited_keys)
+                predecessor.data_keys.difference_update(inherited_keys)
 
-    def display_network(self):
-        print(" Network state:")
-        for node in self.graph:
+            self.nodes.append(new_node)
+            self.nodes.sort(key=lambda x: x.identifier)
+            print(f"Node {new_node_id} joined the ring with data {sorted(new_node.data_keys)}")
+
+    def leave_node(self):
+        if self.nodes:
+            leaving_node = self.nodes.pop(random.randint(0, len(self.nodes) - 1))
+            self.node_bank.append(leaving_node.identifier)
+
+            # Redistribute data to its successor
+            if self.nodes:
+                successor = self.nodes[0] if len(self.nodes) == 1 else self.nodes[0 if self.nodes[0].identifier > leaving_node.identifier else 1]
+                successor.data_keys.update(leaving_node.data_keys)
+                print(f"Node {leaving_node.identifier} left the ring and transferred data to Node {successor.identifier}")
+
+            print(f"Node {leaving_node.identifier} left the ring")
+
+    def display_ring_state(self):
+        print("\nCurrent state of the Chord ring:")
+        for node in self.nodes:
             print(node)
 
-    def add_node(self, new_node):
-        # find position to add node
-        # Implemented with linear search. Might want to change to binary in future
-        idx = 0 
-        while idx < len(self.graph) and self.graph[idx].id < new_node.id:
-            idx+= 1 
+    def simulate(self):
+        while True:
+            # Randomly decide if a node will join or leave
+            action = random.choice(['join', 'leave'])
+            if action == 'join':
+                self.join_node()
+            elif action == 'leave':
+                self.leave_node()
 
-        self.graph.insert(idx, new_node)
+            # Display the current state every 5 seconds
+            self.display_ring_state()
+            time.sleep(5)
 
-    def remove_node(self, node):
-        self.graph = [n for n in self.graph if n.id != node.id]
+# Create and start the Chord simulation with 16 nodes and max identifier space of 16
+chord_ring = ChordRing(total_nodes=16, max_identifier=16)
+simulation_thread = threading.Thread(target=chord_ring.simulate)
+simulation_thread.daemon = True  # Run in background
+simulation_thread.start()
 
-    def random_churn_rate(self):
-        rand = random.random()
-        if rand < 0.333:
-            return ChurnRateTimer.LOW.value
-        elif rand < 0.666:
-            return ChurnRateTimer.MEDIUM.value
-        return ChurnRateTimer.HIGH.value
-        
+# Run the simulation for a set duration (e.g., 60 seconds)
+time.sleep(60)
 
-
-
-def test_chord_protocol():
-    # Create a Chord network with 5 nodes and 2 successors for each node
-    # Node bank size of 10 nodes
-    network = ChordNetwork(size=5, r=2, bank_size=10)
-    
-    # Display initial state of the network
-    print("Initial Network State:")
-    network.display_network()
-
-test_chord_protocol()
