@@ -25,7 +25,7 @@ class ChordNetwork:
             self.timer_thread = Thread(target=self.update_node_timers)
             self.timer_thread.daemon = True
             self.timer_thread.start()
-        print('done')
+        print('Initialization Done!')
         
     
     def initialize_node_bank(self, bank_size):
@@ -57,10 +57,6 @@ class ChordNetwork:
             node = self.node_bank[i]
             self.assign_successors_and_predecessors(node, r, initial_run= True)
             print(f'finger table for node{node.id:} \n {node.finger_table} ')
-        
-        # # Ensure the special node (Node 0) is set up
-        # self.assign_successors_and_predecessors(self.node_bank[0], r)
-        # print(f'finger table for node{self.node_bank[0].id:} \n {self.node_bank[0].finger_table} ')
 
     def assign_successors_and_predecessors(self, node: Node, r: int, initial_run = False):
         # Get the list of active node IDs in ascending order

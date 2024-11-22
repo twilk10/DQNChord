@@ -1,4 +1,3 @@
-from DQNAgent import DeepQLearningAgent
 
 class Node:
     def __init__(self, id, ttl, active_status):
