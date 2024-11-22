@@ -13,15 +13,17 @@ class ChurnRateTimer(Enum):
     HIGH = 100
 
 class ChordNetwork:
-    def __init__(self,size, r, bank_size):
+    def __init__(self,size, r, bank_size, verbose = False):
+        self. verbose = verbose
         self.r = r # number of successor nodes a node can have
         self.node_bank: Dict[int, Node] = self.initialize_node_bank(bank_size)
         self.initialize_graph(size, r)
-        print('Initialization Done!')
-        
+        if self.verbose:
+            print('Initialization Done!')
     
     def initialize_node_bank(self, bank_size):
-        print('Initializing node bank...')
+        if self.verbose:
+            print('Initializing node bank...')
         bank = {}
         for i in range(bank_size):
             if i not in bank:
@@ -30,17 +32,21 @@ class ChordNetwork:
         return bank
     
     def initialize_graph(self, size, r):
-        print('initializing graph...')
+        if self.verbose:
+            print('initializing graph...')
+
         # Activate the first 'size' nodes from the node bank
         for i in range(size):
             node = self.node_bank[i]
             node.is_active = True
 
         for i in range(size):
-            print('assigning predecessors and successors for node', node.id)
+            if self.verbose:
+                print('assigning predecessors and successors for node', node.id)
             node = self.node_bank[i]
             self.assign_successors_and_predecessors(node, r, initial_run= True)
-            print(f'finger table for node{node.id:} \n {node.finger_table} ')
+            if self.verbose:
+                print(f'finger table for node{node.id:} \n {node.finger_table} ')
 
     def assign_successors_and_predecessors(self, node: Node, r: int, initial_run = False):
         # Get the list of active node IDs in ascending order
@@ -76,14 +82,18 @@ class ChordNetwork:
             self.leave_network(node_to_drop)
 
     def lookup(self, key: int):
-        print(f"Starting lookup for Node ID {key} at Node {0}")
+        if self.verbose:
+            print(f"Starting lookup for Node ID {key} at Node {0}")
+
+        if key == 0:
+            return 0
+
         node_0_finger_table = self.node_bank[0].finger_table
-        print('node 1 finger table is:', node_0_finger_table)
         if key in node_0_finger_table['successors']:
             return node_0_finger_table['successors'][key]
 
         network_size = len([n for n in self.node_bank.values() if n.is_active])
-        max_hops =  2 * math.log10(network_size)
+        max_hops = network_size - 1
         # find successor that is closest to the key in the succesor list
         sorted_successors = sorted(node_0_finger_table['successors'])
         if key > sorted_successors[-1]:
@@ -96,7 +106,6 @@ class ChordNetwork:
                     if abs(successor - key) < abs(closest_preceding_node - key):
                         closest_preceding_node = successor
             return self._lookup_helper(key, closest_preceding_node, max_hops - 1)
-        
         return None
     
     def _lookup_helper(self, key: int, node_id: int, max_hops: int):
@@ -118,8 +127,6 @@ class ChordNetwork:
                     if abs(successor - key) < abs(closest_preceding_node - key):
                         closest_preceding_node = successor
             return self._lookup_helper(key, closest_preceding_node, max_hops - 1)
-            closest_successor = min(finger_table['successors'], key=lambda x: abs(x - key))
-            return self._lookup_helper(key, closest_successor, max_hops - 1) 
         return None
 
     def join_network(self, node: Node):
@@ -127,7 +134,8 @@ class ChordNetwork:
         node.reset_timer()
         self.assign_successors_and_predecessors(node, self.r)
         self.stabilize()
-        print(f"Node {node.id} has joined the network.\n")
+        if self.verbose:
+            print(f"Node {node.id} has joined the network.\n")
 
     def leave_network(self, node: Node): 
         node.set_active_status(False)
@@ -136,7 +144,8 @@ class ChordNetwork:
         node.finger_table = {'predecessors': [], 'successors': []}
             
         self.stabilize()
-        print(f"Node {node.id} has left the network.\n")
+        if self.verbose:
+            print(f"Node {node.id} has left the network.\n")
 
     def stabilize_network(self):
         # updates finger tables of active nodes only
@@ -157,6 +166,3 @@ class ChordNetwork:
         elif rand < 0.666:
             return ChurnRateTimer.MEDIUM.value
         return ChurnRateTimer.HIGH.value
-
-
-
