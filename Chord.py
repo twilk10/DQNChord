@@ -1,16 +1,6 @@
-import math
-from threading import Thread, Lock
-import time
 from typing import List, Dict, Optional
 from Node import Node
 import random
-from enum import Enum
-
-
-class ChurnRateTimer(Enum):
-    LOW = 20
-    MEDIUM = 50
-    HIGH = 100
 
 class ChordNetwork:
     def __init__(self,size, r, bank_size, verbose = False):
@@ -76,10 +66,12 @@ class ChordNetwork:
 
     def drop_x_random_nodes(self, x: int):
         # drop x random active from the network
-        active_nodes = sorted([n for n in self.node_bank.values() if n.is_active])
+        active_nodes = [n for n in self.node_bank.values() if n.is_active]
         for i in range(x):
             node_to_drop = random.choice(active_nodes)
             self.leave_network(node_to_drop)
+            active_nodes.remove(node_to_drop)
+
 
     def lookup(self, key: int):
         if self.verbose:
@@ -120,18 +112,15 @@ class ChordNetwork:
         if key > sorted_successors[-1]:
             return self._lookup_helper(key, sorted_successors[-1], max_hops - 1)
         elif key > sorted_successors[0] and key < sorted_successors[-1]:  # within range
-            closest_preceding_node = node_0_finger_table['successors'][0]
-            for successor in node_0_finger_table['successors']:
-                    if successor > key:
-                        break
-                    if abs(successor - key) < abs(closest_preceding_node - key):
-                        closest_preceding_node = successor
+            closest_preceding_node = sorted_successors[0]
+            for successor in sorted_successors:
+                if key > successor and abs(successor - key) < abs(closest_preceding_node - key):
+                    closest_preceding_node = successor
             return self._lookup_helper(key, closest_preceding_node, max_hops - 1)
         return None
 
     def join_network(self, node: Node):
         node.set_active_status(True)
-        node.reset_timer()
         self.assign_successors_and_predecessors(node, self.r)
         self.stabilize()
         if self.verbose:
@@ -139,7 +128,6 @@ class ChordNetwork:
 
     def leave_network(self, node: Node): 
         node.set_active_status(False)
-        node.reset_timer()
         # Clear the node's finger table
         node.finger_table = {'predecessors': [], 'successors': []}
             
@@ -147,7 +135,7 @@ class ChordNetwork:
         if self.verbose:
             print(f"Node {node.id} has left the network.\n")
 
-    def stabilize_network(self):
+    def stabilize(self):
         # updates finger tables of active nodes only
         active_nodes = [node for node in self.node_bank.values() if node.is_active]
         for node in active_nodes:
@@ -158,11 +146,3 @@ class ChordNetwork:
         for node in self.node_bank.values():
             if node.is_active:
                 print(node)
-    
-    def random_churn_rate(self):
-        rand = random.random()
-        if rand < 0.333:
-            return ChurnRateTimer.LOW.value
-        elif rand < 0.666:
-            return ChurnRateTimer.MEDIUM.value
-        return ChurnRateTimer.HIGH.value
