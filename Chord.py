@@ -31,12 +31,9 @@ class ChordNetwork:
             node.is_active = True
 
         for i in range(size):
-            if self.verbose:
-                print('assigning predecessors and successors for node', node.id)
             node = self.node_bank[i]
             self.assign_successors_and_predecessors(node, r, initial_run= True)
-            if self.verbose:
-                print(f'finger table for node{node.id:} \n {node.finger_table} ')
+           
 
     def assign_successors_and_predecessors(self, node: Node, r: int, initial_run = False):
         # Get the list of active node IDs in ascending order
@@ -146,3 +143,9 @@ class ChordNetwork:
         for node in self.node_bank.values():
             if node.is_active:
                 print(node)
+
+
+
+if __name__ == "__main__":
+    network = ChordNetwork(10, 2, 20, verbose=True)
+    network.display_network()

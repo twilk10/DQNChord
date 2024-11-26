@@ -15,5 +15,4 @@ class Node:
     def __str__(self):
         return (f"\t Node Id: {self.id}\n"
                 f"\t Active Status: {self.is_active}\n"
-                f"\t TTL: {self.ttl}\n"
                 f"\t Finger Table: {self.finger_table}\n")
