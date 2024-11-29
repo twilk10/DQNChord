@@ -4,10 +4,14 @@ import gymnasium as gym
 import numpy as np
 from typing import List, Dict, Optional
 import random
+from enum import Enum
 
 # network = ChordNetwork(size=10, r=2, bank_size=20)
 # network.display_network()
 
+class Action(Enum):
+    STABALIZE = 0,
+    LOOKUP = 1,
 
 class ChordWorldEnv(gym.Env):
     metadata = {'render.modes': ['human']}
@@ -17,15 +21,15 @@ class ChordWorldEnv(gym.Env):
 
         self.register_env() # register the environment
         
-        self.action_space = gym.spaces.Discrete(2)  # Actions 0 to 4
+        self.action_space = gym.spaces.Discrete(2)  # Actions 0 to 2
 
         self.observation_space = gym.spaces.Dict({
-            'node_id': gym.spaces.Discrete(256),
-            'finger_table': gym.spaces.Box(low=0, high=255, shape=(2,)),
-            'successor': gym.spaces.Discrete(256),
-            'predecessor': gym.spaces.Discrete(256),
             'lookup_success_rate': gym.spaces.Box(low=0.0, high=1.0, shape=()),
         })
+
+        # self.network = ChordNetwork()
+
+        self.lookup_success_rate = 1.0
 
         self.state = None
         self.reset()
@@ -36,49 +40,46 @@ class ChordWorldEnv(gym.Env):
             entry_point='dqn:ChordNodeEnv',
         )
 
-    def reset(self):
-        # Initialize the agent's state and the network
-        self.state = self._initialize_state()
+    def _get_obs(self):
+        return {
+            'lookup_success_rate': self.lookup_success_rate,
+        }
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        # self.state = self._initialize_state()
+        self.lookup_success_rate = 1.0
+        observation = self._get_obs()
+
+        # reset network func or:
         self.network_state = self._initialize_network()
-        return self.state
+
+        return observation
 
     def step(self, action):
+        # update the netowkr
         self._update_environment()
+
+        # agent will take an action
         self._take_action(action)
+
         reward = self._compute_reward(action)
+
         done = self._check_done()
         return self.state, reward, done, {}
 
-    def _initialize_state(self):
-        # Initialize the agent's state
-
-        # this is dummy code:
-        # node_id = np.random.randint(0, 256)
-        # return {
-        #     'node_id': node_id,
-        #     'finger_table': np.full(, -1),  
-        #     'successor': (node_id + 1) % 256,  # Simplistic initial successor
-        #     'predecessor': (node_id - 1) % 256,  # Simplistic initial predecessor
-        #     'lookup_success_rate': 1.0,
-        #     'finger_table_accuracy': 1.0,
-        #     # Other state variables
-        # }
-        pass
-
     def _initialize_network(self):
-        # init network from chord
         pass
 
     def _take_action(self, action):
-        if action == 1:
+        if action == 0:
             self._stabilize()
-        elif action == 2:
+        elif action == 1:
             self._initiate_lookup()
-        elif action == 3:
-            pass
 
     def _stabilize(self):
         # stabalization from chord
+        # return reward 
         pass
 
     def _initiate_lookup(self):
@@ -91,11 +92,8 @@ class ChordWorldEnv(gym.Env):
         # Nodes may join or leave, affecting the agent
         pass
 
-    def _compute_reward(self, action):
-        # Compute the reward based on the current state and action
-        reward = 0
-        # Calculate reward components
-        return reward
+    def _compute_reward(self):
+        pass
 
     def _check_done(self):
         # Define conditions for ending the episode
@@ -191,7 +189,6 @@ class ChordNetwork:
             self.leave_network(node_to_drop)
             active_nodes.remove(node_to_drop)
 
-
     def lookup(self, key: int):
         if self.verbose:
             print(f"Starting lookup for Node ID {key} at Node {0}")
@@ -265,5 +262,3 @@ class ChordNetwork:
         for node in self.node_bank.values():
             if node.is_active:
                 print(node)
-
-
