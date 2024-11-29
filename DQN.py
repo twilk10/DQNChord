@@ -1,10 +1,23 @@
+import os
+import sys
 import gymnasium as gym 
 import numpy as np
+from Chord import ChordNetwork
+   # Add the parent directory to sys.path
+   # 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+network = ChordNetwork(size=10, r=2, bank_size=20)
+network.display_network()
 
-class ChordNodeEnv(gym.Env):
+
+class ChordWorldEnv(gym.Env):
+    metadata = {'render.modes': ['human']}
+    
     def __init__(self):
-        super(ChordNodeEnv, self).__init__()
+        super(ChordWorldEnv, self).__init__()
 
+        self.register_env() # register the environment
+        
         self.action_space = gym.spaces.Discrete(2)  # Actions 0 to 4
 
         self.observation_space = gym.spaces.Dict({
@@ -17,6 +30,12 @@ class ChordNodeEnv(gym.Env):
 
         self.state = None
         self.reset()
+
+    def register_env(self):
+        gym.register(
+            id='ChordNodeEnv-v0',
+            entry_point='dqn:ChordNodeEnv',
+        )
 
     def reset(self):
         # Initialize the agent's state and the network
