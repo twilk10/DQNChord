@@ -1,0 +1,10 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gymnasium_env"
+version = "0.0.1"
+dependencies = [
+  "gymnasium",
+]
