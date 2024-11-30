@@ -58,6 +58,14 @@ class DQN_Network(nn.Module):
     def __init__(self, num_actions, input_dim):
         super(DQN_Network, self).__init__()
 
+        # self.FC = nn.Sequential(
+        #         nn.Linear(input_dim, 128),
+        #         nn.ReLU(inplace=True),
+        #         nn.Linear(128, 64),
+        #         nn.ReLU(inplace=True),
+        #         nn.Linear(64, num_actions)
+        #     )
+
         self.FC = nn.Sequential(
                 nn.Linear(input_dim, 12),
                 nn.ReLU(inplace=True),
@@ -91,9 +99,7 @@ class DQN_Agent:
         self.action_space = action_space
         self.action_space.seed(seed) 
 
-        self.observation_space = observation_space
-
-        input_dim = self.observation_space.shape[0]
+        input_dim = observation_space.shape[0]
         self.main_network = DQN_Network(num_actions=self.action_space.n, input_dim=input_dim).to(device)
         self.target_network = DQN_Network(num_actions=self.action_space.n, input_dim=input_dim).to(device).eval()
 
@@ -260,51 +266,59 @@ def train(agent, env):
     agent.plot_training()
 
 def test(agent, env, max_episodes, path):  
+    from gymnasium.spaces.utils import unflatten
+
     agent.agent.main_network.load_state_dict(torch.load(path))
     agent.agent.main_network.eval()
-    success_count = 0
-    trajectory = []
     
-    for episode in range(1, max_episodes+1):         
+    success_count = 0
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    original_obs_space = env.unwrapped.original_observation_space  # Access the original observation space from the unwrapped environment
+
+    for episode in range(1, max_episodes + 1):         
         state, _ = env.reset(seed=seed)
+        state_tensor = torch.FloatTensor(state).to(device)
         done = False
         truncation = False
         step_size = 0
         episode_reward = 0
-        succeed = False
-        eps_trajectory = []
-                                                        
+                                                                
         while not done and not truncation:
-            next_state = torch.FloatTensor(next_state).to(device)
-            action = agent.agent.select_action(state)
+            action = agent.agent.select_action(state_tensor)
             next_state, reward, done, truncation, _ = env.step(action)
-
-            grid_shape = env.unwrapped.desc.shape
-            grid_cols = grid_shape[1]
-            row = next_state // grid_cols
-            col = next_state % grid_cols
-            eps_trajectory.append((row,col))
-
-            state = next_state
+            next_state_tensor = torch.FloatTensor(next_state).to(device)
+    
+            # Update state for the next iteration
+            state_tensor = next_state_tensor
             episode_reward += reward
             step_size += 1
-        
-        trajectory.append(eps_trajectory)
 
-        if reward == 1.0:
-            success_count += 1
+        # After the episode ends, access lookup_success_rate
+        state_np = state_tensor.cpu().numpy()
+        obs_dict = unflatten(original_obs_space, state_np)
+        lookup_success_rate = obs_dict['lookup_success_rate'][0]
+
+        if lookup_success_rate >= 0.5:
             succeed = True
+            success_count += 1
+        else:
+            succeed = False
 
+        # Print episode result
         result = (f"Episode: {episode}, "
-                    f"Steps: {step_size:}, "
-                    f"Reward: {episode_reward:.2f}, "
-                    f"Succeed: {succeed}, ")
+                  f"Steps: {step_size}, "
+                  f"Reward: {episode_reward:.2f}, "
+                  f"Lookup Success Rate: {lookup_success_rate:.2f}, "
+                  f"Succeed: {succeed}")
         print(result)
+    
+    # Calculate and print overall success rate
     success_rate = success_count / max_episodes * 100
     print(f"\nOverall Success Rate: {success_rate:.2f}%")
-    print(f"Trajectory: {trajectory}")
+
 
 def main():
+    print(device)
     env = gym.make('gymnasium_env/ChordWorldEnv-v0')
     # env_20 = gym.make('FrozenLake-v1', desc=custom_map_20, is_slippery=False, max_episode_steps=100)
 
@@ -327,6 +341,8 @@ def main():
     DRL_Chord = Model_TrainTest(RL_hyperparams)
     train(DRL_Chord, env)
     DRL_Chord.agent.save("Chord_model.pt")
+
+    test(DRL_Chord, env, max_episodes = 200, path = "Chord_model.pt")
 
 if __name__ == '__main__':
     main()
