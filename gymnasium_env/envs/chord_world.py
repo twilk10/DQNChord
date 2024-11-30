@@ -80,7 +80,7 @@ class ChordWorldEnv(gym.Env):
        # Populate active_nodes and finger_tables
         for node_id, node in self.network.node_bank.items():
             if node.is_active:
-                active_nodes.append(node.id)
+                active_nodes[node_id] = 1
                 successors = node.finger_table.get('successors', [])
                 predecessors = node.finger_table.get('predecessors', [])
                 finger_entries = successors + predecessors
