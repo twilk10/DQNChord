@@ -1,11 +1,11 @@
 import unittest
-from Chord import ChordNetwork
+from chord_world import ChordNetwork
 
 class TestChordNetwork(unittest.TestCase):
 
     def setUp(self):
         """Set up a Chord network before each test."""
-        self.network = ChordNetwork(size=10, r=2, bank_size=20) 
+        self.network = ChordNetwork(n_nodes_to_activate=10, r=2, bank_size=20) 
 
     def test_initialize_node_bank(self):
         """Test if the node bank is correctly initialized."""
@@ -70,6 +70,13 @@ class TestChordNetwork(unittest.TestCase):
         active_nodes = [n for n in self.network.node_bank.values() if n.is_active]
         self.assertEqual(len(active_nodes), 8)
 
+    def test_join_x_random_nodes(self):
+        """Test if x random nodes are joined correctly."""
+        number_of_active_nodes = len([n for n in self.network.node_bank.values() if n.is_active])
+        self.network.join_x_random_nodes(2)
+        active_nodes = [n for n in self.network.node_bank.values() if n.is_active]
+        self.assertEqual(len(active_nodes), number_of_active_nodes + 2)
+
     def test_node_join(self):
         """Test if a node can successfully join the network."""
         node = self.network.node_bank[6]
@@ -77,6 +84,14 @@ class TestChordNetwork(unittest.TestCase):
         self.network.join_network(node)
         self.assertTrue(node.is_active)  # Node should be active after joining
         self.assertGreater(len(node.finger_table['successors']), 0)
+        # Go through all the active nodes and checkif the newly activated node is one of them
+        active_nodes = [n for n in self.network.node_bank.values() if n.is_active]
+        activated = False
+        for current_node in active_nodes:
+            if current_node.id == node.id:
+                activated = True
+        self.assertTrue(activated)
+       
 
     def test_node_leave(self):
         """Test if a node can successfully leave the network."""
@@ -85,12 +100,6 @@ class TestChordNetwork(unittest.TestCase):
         self.network.leave_network(node)
         self.assertFalse(node.is_active)  # Node should be inactive after leaving
         self.assertEqual(len(node.finger_table['successors']), 0)
-
-    # def test_random_churn_rate(self):
-    #     """Test if random churn rates are assigned correctly."""
-    #     rates = {20, 50, 100}
-    #     churn_rate = self.network.random_churn_rate()
-    #     self.assertIn(churn_rate, rates)
 
     def test_stabilize(self):
         """Test if all finger tables are updated correctly."""
