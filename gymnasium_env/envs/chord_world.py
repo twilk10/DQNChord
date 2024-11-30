@@ -25,6 +25,7 @@ class ChordWorldEnv(gym.Env):
             'lookup_success_rate': gym.spaces.Box(low=0.0, high=1.0, shape=()),
         })
 
+        # Initialize the network    
         self.network = ChordNetwork()
 
         self.lookup_success_rate = 1.0
@@ -51,7 +52,7 @@ class ChordWorldEnv(gym.Env):
         # agent will take an action
         stability_score, is_successful_lookup = self._take_action(action)
 
-        # update the netowkr
+        # update the netwrk
         self._update_environment()
 
         # compute reward
@@ -69,6 +70,7 @@ class ChordWorldEnv(gym.Env):
         return self.state, reward, terminated, truncated, {}
 
     def _initialize_network(self):
+        # State of the network should be set randomly
         pass
 
     def _take_action(self, action):
@@ -80,13 +82,17 @@ class ChordWorldEnv(gym.Env):
         return stability_score, is_successful_lookup
 
     def _stabilize(self):
-        # stabalization from chord
-        # return stability score. Value between 0 and 1
+        ''' 
+            stabalization from chord
+            # return stability score. Value between 0 and 1
+        '''
         self.network.stabilize()
         actual_network_state = self.network.get_network_state()
+
+        # TODO: The dqn agent needs to update the network state
         expected_network_state = self.network_state
-        # compare the actual network state with the expected network state
-        # number of nodes that are in the same position in both states
+
+        # compare the actual network state with the expected network state after the agent has updated it
         count = 0
         for node_id in actual_network_state:
             # check if the finger table of the node is the same in both states
@@ -98,7 +104,6 @@ class ChordWorldEnv(gym.Env):
        
 
     def _initiate_lookup(self):
-        # Simulate a lookup operation
         # Determine if the lookup is successful based on the network state
         # return True if successful, False otherwise
         key = random.randint(0, 100)
