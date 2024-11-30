@@ -21,12 +21,14 @@ class ChordWorldEnv(gym.Env):
 
         # Initialize the network 
         # # Initialize the network    
-        self.network = ChordNetwork(n_nodes_to_activate=20, r=2, bank_size=40, verbose=True)
+        self.verbose = False
+        self.network = ChordNetwork(n_nodes_to_activate=20, r=2, bank_size=40, verbose=self.verbose)
         self.previous_network_state = None
         self.network_state = None  
          
         # Define max network size and r based on the network
-        self.max_network_size = self.network.bank_size  # This should be 20
+        self.min_network_size = self.network.r+2
+        self.max_network_size = self.network.bank_size  # This should be 40
         self.r = self.network.r  # This should be 2
         
         
@@ -71,13 +73,14 @@ class ChordWorldEnv(gym.Env):
             self.lookup_success_rate = 0.0
 
          # Initialize observations
-        active_nodes = []
+        active_nodes = np.zeros(self.max_network_size, dtype=np.int8)
         finger_tables = np.full((self.max_network_size, self.r + 1), -1, dtype=np.int32)  # Fill with -1 for inactive nodes
+
 
        # Populate active_nodes and finger_tables
         for node_id, node in self.network.node_bank.items():
             if node.is_active:
-                active_nodes.append(node.id)
+                active_nodes[node_id] = 1
                 successors = node.finger_table.get('successors', [])
                 predecessors = node.finger_table.get('predecessors', [])
                 finger_entries = successors + predecessors
@@ -88,7 +91,7 @@ class ChordWorldEnv(gym.Env):
         observation = {
             'lookup_success_rate': np.array([self.lookup_success_rate], dtype=np.float32),
             'stability_score': np.array([self.stability_score], dtype=np.float32),
-            'active_nodes': np.array(active_nodes, dtype=np.int8),
+            'active_nodes': active_nodes,
             'finger_tables': finger_tables,
         }
 
@@ -97,22 +100,35 @@ class ChordWorldEnv(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        # self.state = self._initialize_state()
 
-        # Initialize the network    
-        self.network = ChordNetwork(n_nodes_to_activate=20, r=2, bank_size=40, verbose=True)
+        
+        self.current_step = 0
 
-        # Reset other variables
-        self.stability_score = 0.0
+        # Initialize the network 
+        # # Initialize the network    
+        self.network = ChordNetwork(n_nodes_to_activate=20, r=2, bank_size=40, verbose=self.verbose)
         self.previous_network_state = None
-        self.state = None
-        self.is_successful_lookup = False
-        self.lookup_success_rate = 0.0
+        self.network_state = None  
+         
+        # Define max network size and r based on the network
+        self.min_network_size = self.network.r+2
+        self.max_network_size = self.network.bank_size  # This should be 20
+        self.r = self.network.r  # This should be 2
+  
+        self.stability_score = 0.0
+
+        # Lookup stats
         self.total_lookup_attempts = 0
         self.failed_lookup_attempts = 0
         self.successful_lookup_attempts = 0
-        self.current_step = 0
-        self.network_state = self._initialize_network()
+        self.lookup_success_rate = 0.0
+
+        self.is_successful_lookup = False
+
+        # Stabilization score
+        self.stability_score= 0.0
+        
+        self.state = None
         observation = self._get_obs()
 
         return observation, {}
@@ -218,6 +234,11 @@ class ChordWorldEnv(gym.Env):
             Nodes may join or leave, affecting the agent
             50% chances for nodes to join or leave
         '''
+        current_network_size = len([n for n in self.network.node_bank.values() if n.is_active])
+        while current_network_size < self.min_network_size:
+            self.network.join_x_random_nodes(1)
+            current_network_size = len([n for n in self.network.node_bank.values() if n.is_active])
+
         if random.random() < 0.5:
             self.network.join_x_random_nodes(1)
         else:
@@ -313,6 +334,7 @@ class ChordNetwork:
         if not initial_run and node.id not in active_nodes_ids:
             raise ValueError(f"Node {node.id} is not active or missing from the active nodes.")
         if not initial_run and r > total_number_of_active_nodes:
+            print('Active nodes:', active_nodes_ids)
             raise ValueError(f"Not enough active nodes to assign {r} successors/predecessors.")
         
         # Get the index of the current node in the sorted active nodes list
@@ -350,10 +372,8 @@ class ChordNetwork:
         # join x random inactive nodes to the network
         for i in range(x):
             inactive_nodes = [n for n in self.node_bank.values() if not n.is_active]
-
-            if len(inactive_nodes) <= x:
-                raise ValueError(f"Not enough inactive nodes to join {x} nodes.")
-            
+            if len(inactive_nodes) <= 0:
+                continue
             node_to_join = random.choice(inactive_nodes)
             self.join_network(node_to_join)
 
