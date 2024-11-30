@@ -5,6 +5,8 @@ import numpy as np
 from typing import List, Dict, Optional
 import random
 from enum import Enum
+from gymnasium.spaces import flatten_space, flatten
+
 
 # network = ChordNetwork(size=10, r=2, bank_size=20)
 # network.display_network()
@@ -32,7 +34,7 @@ class ChordWorldEnv(gym.Env):
         
         self.action_space = gym.spaces.Discrete(2)  # Actions 0 to 2
 
-        self.observation_space = gym.spaces.Dict({
+        self.original_observation_space = gym.spaces.Dict({
             'lookup_success_rate': gym.spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32),
             'stability_score': gym.spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32),
             'active_nodes': gym.spaces.MultiBinary(self.network.bank_size),
@@ -43,6 +45,8 @@ class ChordWorldEnv(gym.Env):
                 ),
             })
         
+        self.observation_space = flatten_space(self.original_observation_space)
+
         self.stability_score = 1.0
 
         # Initialize the network    
@@ -97,7 +101,8 @@ class ChordWorldEnv(gym.Env):
                 'finger_tables': finger_tables,
         }
 
-        return observation
+        flat_observaton = flatten(self.original_observation_space, observation)
+        return flat_observaton
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
