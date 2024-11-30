@@ -8,16 +8,18 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import gc
 import gymnasium_env
+from gymnasium.spaces.utils import unflatten
 
-
+# Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# Garbage collection and CUDA memory cleanup
 gc.collect()
 torch.cuda.empty_cache()
 
-seed = 1234 
+# Set seeds for reproducibility
+seed = 1234
 np.random.seed(seed)
-np.random.default_rng(seed)
 torch.manual_seed(seed)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(seed)
@@ -27,137 +29,112 @@ if torch.cuda.is_available():
 class ReplayMemory:
     def __init__(self, capacity):
         self.capacity = capacity
-        self.states = deque(maxlen=capacity)
-        self.actions = deque(maxlen=capacity)
-        self.next_states = deque(maxlen=capacity)
-        self.rewards = deque(maxlen=capacity)
-        self.dones = deque(maxlen=capacity)
+        self.memory = deque(maxlen=capacity)
         
     def store(self, state, action, next_state, reward, done):
-        self.states.append(state)
-        self.actions.append(action)
-        self.next_states.append(next_state)
-        self.rewards.append(reward)
-        self.dones.append(done)
+        self.memory.append((state, action, next_state, reward, done))
         
     def sample(self, batch_size):
-        indices = np.random.choice(len(self), size=batch_size, replace=False)
+        batch = np.random.choice(len(self), size=batch_size, replace=False)
+        states, actions, next_states, rewards, dones = zip(*[self.memory[i] for i in batch])
 
-        states = torch.stack([torch.as_tensor(self.states[i], dtype=torch.float32, device=device) for i in indices]).to(device)
-        actions = torch.as_tensor([self.actions[i] for i in indices], dtype=torch.long, device=device)
-        next_states = torch.stack([torch.as_tensor(self.next_states[i], dtype=torch.float32, device=device) for i in indices]).to(device)
-        rewards = torch.as_tensor([self.rewards[i] for i in indices], dtype=torch.float32, device=device)
-        dones = torch.as_tensor([self.dones[i] for i in indices], dtype=torch.bool, device=device)
+        states = torch.stack(states).to(device)
+        actions = torch.tensor(actions, dtype=torch.long, device=device).unsqueeze(1)
+        next_states = torch.stack(next_states).to(device)
+        rewards = torch.tensor(rewards, dtype=torch.float32, device=device).unsqueeze(1)
+        dones = torch.tensor(dones, dtype=torch.bool, device=device).unsqueeze(1)
 
         return states, actions, next_states, rewards, dones
     
     def __len__(self):
-        return len(self.dones)
+        return len(self.memory)
     
 class DQN_Network(nn.Module):
     def __init__(self, num_actions, input_dim):
         super(DQN_Network, self).__init__()
 
-        # self.FC = nn.Sequential(
-        #         nn.Linear(input_dim, 128),
-        #         nn.ReLU(inplace=True),
-        #         nn.Linear(128, 64),
-        #         nn.ReLU(inplace=True),
-        #         nn.Linear(64, num_actions)
-        #     )
-
         self.FC = nn.Sequential(
-                nn.Linear(input_dim, 12),
-                nn.ReLU(inplace=True),
-                nn.Linear(12, 8),
-                nn.ReLU(inplace=True),
-                nn.Linear(8, num_actions)
-            )
+            nn.Linear(input_dim, 256),
+            nn.ReLU(inplace=True),
+            nn.Linear(256, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, 64),
+            nn.ReLU(inplace=True),
+            nn.Linear(64, num_actions)
+        )
         
-        for layer in [self.FC]:
-            for module in layer:
-                if isinstance(module, nn.Linear):
-                    nn.init.kaiming_uniform_(module.weight, nonlinearity='relu')
+        # Initialize weights
+        for module in self.FC:
+            if isinstance(module, nn.Linear):
+                nn.init.kaiming_uniform_(module.weight, nonlinearity='relu')
         
     def forward(self, x):
-        Q = self.FC(x)    
+        Q = self.FC(x)
         return Q
 
 class DQN_Agent:
     def __init__(self, action_space, observation_space, epsilon_max, epsilon_min,
-                 epsilon_decay, clip_grad_norm, learning_rate, discount, memory_capacity):
+                 decay_episodes, clip_grad_norm, learning_rate, discount, memory_capacity):
         
         self.loss_history = []
         self.running_loss = 0
         self.learned_counts = 0
                      
+        self.epsilon = epsilon_max
         self.epsilon_max = epsilon_max
         self.epsilon_min = epsilon_min
-        self.epsilon_decay = epsilon_decay
+        self.decay_episodes = decay_episodes
+        self.epsilon_decay = (epsilon_max - epsilon_min) / decay_episodes
         self.discount = discount
 
         self.action_space = action_space
-        self.action_space.seed(seed) 
+        self.action_space.seed(seed)
 
         input_dim = observation_space.shape[0]
         self.main_network = DQN_Network(num_actions=self.action_space.n, input_dim=input_dim).to(device)
-        self.target_network = DQN_Network(num_actions=self.action_space.n, input_dim=input_dim).to(device).eval()
+        self.target_network = DQN_Network(num_actions=self.action_space.n, input_dim=input_dim).to(device)
+        self.target_network.load_state_dict(self.main_network.state_dict())
+        self.target_network.eval()
 
         self.replay_memory = ReplayMemory(memory_capacity)
         
-        self.target_network.load_state_dict(self.main_network.state_dict())
-
-        self.clip_grad_norm = clip_grad_norm 
-        self.critertion = nn.MSELoss()
-        # adamn optmization function
+        self.clip_grad_norm = clip_grad_norm
+        self.criterion = nn.MSELoss()
         self.optimizer = optim.Adam(self.main_network.parameters(), lr=learning_rate)
                 
     def select_action(self, state):
-        if np.random.random() < self.epsilon_max:
+        if np.random.random() < self.epsilon:
             return self.action_space.sample()
-        
-        with torch.no_grad():
-            Q_values = self.main_network(state)
-            action = torch.argmax(Q_values).item()
-                        
-            return action
+        else:
+            with torch.no_grad():
+                Q_values = self.main_network(state)
+                action = torch.argmax(Q_values).item()
+                return action
    
-    def learn(self, batch_size, done):
+    def learn(self, batch_size):
         states, actions, next_states, rewards, dones = self.replay_memory.sample(batch_size)
                     
-        actions = actions.unsqueeze(1)
-        rewards = rewards.unsqueeze(1)
-        dones = dones.unsqueeze(1)       
-        
-        predicted_q = self.main_network(states) 
-        predicted_q = predicted_q.gather(dim=1, index=actions) 
+        predicted_q = self.main_network(states).gather(1, actions)
+        with torch.no_grad():
+            next_q_values = self.target_network(next_states).max(1)[0].unsqueeze(1)
+            next_q_values[dones] = 0.0
+            target_q = rewards + self.discount * next_q_values
 
-        with torch.no_grad():            
-            next_target_q_value = self.target_network(next_states).max(dim=1, keepdim=True)[0] 
-            
-        next_target_q_value[dones] = 0 
-        y_js = rewards + (self.discount * next_target_q_value) 
-        loss = self.critertion(predicted_q, y_js) 
+        loss = self.criterion(predicted_q, target_q)
         
         self.running_loss += loss.item()
         self.learned_counts += 1
 
-        if done:
-            episode_loss = self.running_loss / self.learned_counts 
-            self.loss_history.append(episode_loss)
-            self.running_loss = 0
-            self.learned_counts = 0
-            
         self.optimizer.zero_grad()
-        loss.backward() 
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(self.main_network.parameters(), self.clip_grad_norm)
-        self.optimizer.step() 
+        self.optimizer.step()
  
     def hard_update(self):
         self.target_network.load_state_dict(self.main_network.state_dict())
     
     def update_epsilon(self):
-        self.epsilon_max = max(self.epsilon_min, self.epsilon_max * self.epsilon_decay)
+        self.epsilon = max(self.epsilon_min, self.epsilon - self.epsilon_decay)
 
     def save(self, path):
         torch.save(self.main_network.state_dict(), path)
@@ -174,7 +151,7 @@ class Model_TrainTest:
         
         self.epsilon_max = hyperparams["epsilon_max"]
         self.epsilon_min = hyperparams["epsilon_min"]
-        self.epsilon_decay = hyperparams["epsilon_decay"]
+        self.decay_episodes = hyperparams["decay_episodes"]
         
         self.memory_capacity = hyperparams["memory_capacity"]
         
@@ -186,48 +163,47 @@ class Model_TrainTest:
                                 observation_space = self.observation_space,
                                 epsilon_max = self.epsilon_max, 
                                 epsilon_min = self.epsilon_min, 
-                                epsilon_decay = self.epsilon_decay,
+                                decay_episodes = self.decay_episodes,
                                 clip_grad_norm = self.clip_grad_norm,
                                 learning_rate = self.learning_rate,
                                 discount = self.discount_factor,
                                 memory_capacity = self.memory_capacity
                             )
-        
+        self.reward_history = []
+        self.loss_history = []
+
     def plot_training(self):
-        sma = np.convolve(self.reward_history, np.ones(50)/50, mode='valid')
+        sma_rewards = np.convolve(self.reward_history, np.ones(50)/50, mode='valid')
         
-        #reward plot
+        # Reward plot
         plt.figure()
         plt.title("Rewards")
-        plt.plot(self.reward_history, label='Raw Reward', color='#F6CE3B', alpha=1)
-        plt.plot(sma, label='SMA 50', color='#385DAA')
+        plt.plot(self.reward_history, label='Raw Reward', color='#F6CE3B', alpha=0.6)
+        plt.plot(range(len(sma_rewards)), sma_rewards, label='SMA 50', color='#385DAA')
         plt.xlabel("Episode")
         plt.ylabel("Rewards")
         plt.legend()
-        
-        plt.tight_layout()
         plt.grid(True)
         plt.show()
-        plt.clf()
-        plt.close() 
         
-        # loss plot
+        # Loss plot
+        sma_loss = np.convolve(self.loss_history, np.ones(50)/50, mode='valid')
         plt.figure()
         plt.title("Loss")
-        plt.plot(self.agent.loss_history, label='Loss', color='#CB291A', alpha=1)
+        plt.plot(self.loss_history, label='Raw Loss', color='#CB291A', alpha=0.6)
+        plt.plot(range(len(sma_loss)), sma_loss, label='SMA 50', color='#2E8B57')
         plt.xlabel("Episode")
         plt.ylabel("Loss")
-        
-        plt.tight_layout()
+        plt.legend()
         plt.grid(True)
-        plt.show()        
-    
+        plt.show()
 
 def train(agent, env): 
     total_steps = 0
     agent.reward_history = []
+    agent.loss_history = []
     
-    for episode in range(1, agent.max_episodes+1):
+    for episode in range(1, agent.max_episodes + 1):
         state, _ = env.reset(seed=seed)
         state = torch.FloatTensor(state).to(device)
         done = False
@@ -236,44 +212,51 @@ def train(agent, env):
         episode_reward = 0
                                             
         while not done and not truncation:
-            action = agent.agent.select_action(state)
+            # Normalize state
+            state_norm = (state - state.mean()) / (state.std() + 1e-8)
+            action = agent.agent.select_action(state_norm)
             next_state, reward, done, truncation, _ = env.step(action)
             next_state = torch.FloatTensor(next_state).to(device)
+            next_state_norm = (next_state - next_state.mean()) / (next_state.std() + 1e-8)
             
-            agent.agent.replay_memory.store(state, action, next_state, reward, done) 
+            agent.agent.replay_memory.store(state_norm, action, next_state_norm, reward, done)
             
-            if len(agent.agent.replay_memory) > agent.batch_size and sum(agent.reward_history) > 0:
-                agent.agent.learn(agent.batch_size, (done or truncation))
-            
+            if len(agent.agent.replay_memory) > agent.batch_size:
+                agent.agent.learn(agent.batch_size)
                 if total_steps % agent.update_frequency == 0:
                     agent.agent.hard_update()
             
             state = next_state
             episode_reward += reward
-            step_size +=1
-                        
-        agent.reward_history.append(episode_reward) 
-        total_steps += step_size
-                                                                        
+            step_size += 1
+            total_steps += 1
+                                
+        agent.reward_history.append(episode_reward)
+        if agent.agent.learned_counts > 0:
+            avg_loss = agent.agent.running_loss / agent.agent.learned_counts
+            agent.loss_history.append(avg_loss)
+            agent.agent.running_loss = 0
+            agent.agent.learned_counts = 0
+        else:
+            agent.loss_history.append(0)
+        
         agent.agent.update_epsilon()
                         
         result = (f"Episode: {episode}, "
-                    f"Total Steps: {total_steps}, "
-                    f"Ep Step: {step_size}, "
-                    f"Raw Reward: {episode_reward:.2f}, "
-                    f"Epsilon: {agent.agent.epsilon_max:.2f}")
+                  f"Total Steps: {total_steps}, "
+                  f"Episode Steps: {step_size}, "
+                  f"Episode Reward: {episode_reward:.2f}, "
+                  f"Epsilon: {agent.agent.epsilon:.4f}")
         print(result)
     agent.plot_training()
 
 def test(agent, env, max_episodes, path):  
-    from gymnasium.spaces.utils import unflatten
-
     agent.agent.main_network.load_state_dict(torch.load(path))
     agent.agent.main_network.eval()
     
     success_count = 0
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    original_obs_space = env.unwrapped.original_observation_space  # Access the original observation space from the unwrapped environment
+    original_obs_space = env.unwrapped.original_observation_space  # Access the original observation space
 
     for episode in range(1, max_episodes + 1):         
         state, _ = env.reset(seed=seed)
@@ -282,9 +265,12 @@ def test(agent, env, max_episodes, path):
         truncation = False
         step_size = 0
         episode_reward = 0
+        lookup_success_rate = 0.0
                                                                 
         while not done and not truncation:
-            action = agent.agent.select_action(state_tensor)
+            # Normalize state
+            state_norm = (state_tensor - state_tensor.mean()) / (state_tensor.std() + 1e-8)
+            action = agent.agent.select_action(state_norm)
             next_state, reward, done, truncation, _ = env.step(action)
             next_state_tensor = torch.FloatTensor(next_state).to(device)
     
@@ -298,7 +284,7 @@ def test(agent, env, max_episodes, path):
         obs_dict = unflatten(original_obs_space, state_np)
         lookup_success_rate = obs_dict['lookup_success_rate'][0]
 
-        if lookup_success_rate >= 0.5:
+        if lookup_success_rate >= 0.9:
             succeed = True
             success_count += 1
         else:
@@ -316,24 +302,22 @@ def test(agent, env, max_episodes, path):
     success_rate = success_count / max_episodes * 100
     print(f"\nOverall Success Rate: {success_rate:.2f}%")
 
-
 def main():
-    print(device)
+    print(f"Using device: {device}")
     env = gym.make('gymnasium_env/ChordWorldEnv-v0')
-    # env_20 = gym.make('FrozenLake-v1', desc=custom_map_20, is_slippery=False, max_episode_steps=100)
 
     RL_hyperparams = {
-        "clip_grad_norm": 3,
-        "learning_rate": 6e-4,
-        "discount_factor": 0.93,
-        "batch_size": 32,
-        "update_frequency": 10,
-        "max_episodes": 3000,
+        "clip_grad_norm": 1.0,
+        "learning_rate": 1e-4,
+        "discount_factor": 0.99,
+        "batch_size": 64,
+        "update_frequency": 100,
+        "max_episodes": 5000,
         "max_steps": 200,
-        "epsilon_max": 0.999, 
+        "epsilon_max": 1.0, 
         "epsilon_min": 0.01,
-        "epsilon_decay": 0.999,
-        "memory_capacity": 4_000,
+        "decay_episodes": 3000,
+        "memory_capacity": 10000,
         "action_space": env.action_space,
         "observation_space": env.observation_space,
     }
@@ -342,7 +326,7 @@ def main():
     train(DRL_Chord, env)
     DRL_Chord.agent.save("Chord_model.pt")
 
-    test(DRL_Chord, env, max_episodes = 200, path = "Chord_model.pt")
+    test(DRL_Chord, env, max_episodes=200, path="Chord_model.pt")
 
 if __name__ == '__main__':
     main()
