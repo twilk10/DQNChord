@@ -18,8 +18,6 @@ class ChordWorldEnv(gym.Env):
     
     def __init__(self):
         super(ChordWorldEnv, self).__init__()
-
-        self.register_env() # register the environment
         
         self.action_space = gym.spaces.Discrete(2)  # Actions 0 to 2
 
@@ -27,18 +25,12 @@ class ChordWorldEnv(gym.Env):
             'lookup_success_rate': gym.spaces.Box(low=0.0, high=1.0, shape=()),
         })
 
-        # self.network = ChordNetwork()
+        self.network = ChordNetwork()
 
         self.lookup_success_rate = 1.0
 
         self.state = None
         self.reset()
-
-    def register_env(self):
-        gym.register(
-            id='ChordNodeEnv-v0',
-            entry_point='dqn:ChordNodeEnv',
-        )
 
     def _get_obs(self):
         return {
@@ -49,52 +41,91 @@ class ChordWorldEnv(gym.Env):
         super().reset(seed=seed)
         # self.state = self._initialize_state()
         self.lookup_success_rate = 1.0
-        observation = self._get_obs()
-
         # reset network func or:
         self.network_state = self._initialize_network()
+        observation = self._get_obs()
 
         return observation
 
     def step(self, action):
+        # agent will take an action
+        stability_score, is_successful_lookup = self._take_action(action)
+
         # update the netowkr
         self._update_environment()
 
-        # agent will take an action
-        self._take_action(action)
+        # compute reward
+        reward = self._compute_reward(action, stability_score, is_successful_lookup)
 
-        reward = self._compute_reward(action)
+        # Get new observation
+        self.state = self._get_obs()
 
+        # Check if the done
         done = self._check_done()
-        return self.state, reward, done, {}
+
+        terminated = done
+        truncated = False
+
+        return self.state, reward, terminated, truncated, {}
 
     def _initialize_network(self):
         pass
 
     def _take_action(self, action):
-        if action == 0:
-            self._stabilize()
-        elif action == 1:
-            self._initiate_lookup()
+        if action == Action.STABALIZE.value:
+            stability_score = self._stabilize()
+        elif action == Action.LOOKUP.value:
+            is_successful_lookup = self._initiate_lookup()
+
+        return stability_score, is_successful_lookup
 
     def _stabilize(self):
         # stabalization from chord
-        # return reward 
-        pass
+        # return stability score. Value between 0 and 1
+        self.network.stabilize()
+        actual_network_state = self.network.get_network_state()
+        expected_network_state = self.network_state
+        # compare the actual network state with the expected network state
+        # number of nodes that are in the same position in both states
+        count = 0
+        for node_id in actual_network_state:
+            # check if the finger table of the node is the same in both states
+            actual_finger_table = actual_network_state[node_id]
+            expected_finger_table = expected_network_state[node_id]
+            if actual_finger_table == expected_finger_table:
+                count += 1
+        return count / len(actual_network_state)
+       
 
     def _initiate_lookup(self):
         # Simulate a lookup operation
         # Determine if the lookup is successful based on the network state
-        pass
+        # return True if successful, False otherwise
+        key = random.randint(0, 100)
+        result = self.network.lookup(key)
+        if result is not None:
+            return True
+        return False
 
     def _update_environment(self):
         # Simulate network dynamics
         # Nodes may join or leave, affecting the agent
-        pass
+        # 50% chances for nodes to join or leave
+        if random.random() < 0.5:
+            self.network.join_x_random_nodes(1)
+        else:
+            self.network.drop_x_random_nodes(1)
+        
 
-    def _compute_reward(self):
-        pass
-
+    def _compute_reward(self, action, stability_score, is_successful_lookup):
+        if action == Action.LOOKUP.value:
+            reward = 1 if is_successful_lookup else -1
+        elif action == Action.STABALIZE.value:
+            reward = 1 if stability_score > 0.8 else -1
+        else:
+            reward = 0
+        return reward
+    
     def _check_done(self):
         # Define conditions for ending the episode
         return False  # Continuous task
@@ -189,6 +220,14 @@ class ChordNetwork:
             self.leave_network(node_to_drop)
             active_nodes.remove(node_to_drop)
 
+    def join_x_random_nodes(self, x: int):
+        # join x random inactive nodes to the network
+        inactive_nodes = [n for n in self.node_bank.values() if not n.is_active]
+        for i in range(x):
+            node_to_join = random.choice(inactive_nodes)
+            self.join_network(node_to_join)
+            inactive_nodes.remove(node_to_join)
+
     def lookup(self, key: int):
         if self.verbose:
             print(f"Starting lookup for Node ID {key} at Node {0}")
@@ -256,6 +295,13 @@ class ChordNetwork:
         active_nodes = [node for node in self.node_bank.values() if node.is_active]
         for node in active_nodes:
             self.assign_successors_and_predecessors(node, self.r)
+
+    def get_network_state(self):
+        network_state = {}
+        for node in self.node_bank.values():
+            if node.is_active:
+                network_state[node.id] = node.finger_table
+        return network_state
 
     def display_network(self):
         print(" Network state:")
