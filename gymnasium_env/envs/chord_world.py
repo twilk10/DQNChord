@@ -23,25 +23,47 @@ class ChordWorldEnv(gym.Env):
 
         self.observation_space = gym.spaces.Dict({
             'lookup_success_rate': gym.spaces.Box(low=0.0, high=1.0, shape=()),
+            # all active nodes in the network
+            'network_state': gym.spaces.Dict({
+                'node_id': gym.spaces.Discrete(100),
+                'finger_table': gym.spaces.Dict({
+                    'predecessors': gym.spaces.List(gym.spaces.Discrete(100)),
+                    'successors': gym.spaces.List(gym.spaces.Discrete(100))
+                })
+            })
         })
 
         # Initialize the network    
         self.network = ChordNetwork()
 
+        # Lookup stats
+        self.total_lookup_attempts = 0
+        self.failed_lookup_attempts = 0
+        self.successful_lookup_attempts = 0
         self.lookup_success_rate = 1.0
 
         self.state = None
         self.reset()
 
     def _get_obs(self):
+        ''' 
+            Get the observation
+        '''
+        self.lookup_success_rate = self.successful_lookup_attempts / self.total_lookup_attempts
         return {
             'lookup_success_rate': self.lookup_success_rate,
+            'network_state': self.network.get_network_state()
         }
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         # self.state = self._initialize_state()
+
+        # Reset lookup stats
         self.lookup_success_rate = 1.0
+        self.total_lookup_attempts = 0
+        self.failed_lookup_attempts = 0
+        self.successful_lookup_attempts = 0
         # reset network func or:
         self.network_state = self._initialize_network()
         observation = self._get_obs()
@@ -70,10 +92,15 @@ class ChordWorldEnv(gym.Env):
         return self.state, reward, terminated, truncated, {}
 
     def _initialize_network(self):
-        # State of the network should be set randomly
+        ''' 
+            State of the network should be set randomly
+        '''
         pass
 
     def _take_action(self, action):
+        ''' 
+            Take an action based on the action space
+        '''
         if action == Action.STABALIZE.value:
             stability_score = self._stabilize()
         elif action == Action.LOOKUP.value:
@@ -84,7 +111,7 @@ class ChordWorldEnv(gym.Env):
     def _stabilize(self):
         ''' 
             stabalization from chord
-            # return stability score. Value between 0 and 1
+            return stability score. Value between 0 and 1
         '''
         self.network.stabilize()
         actual_network_state = self.network.get_network_state()
@@ -104,18 +131,29 @@ class ChordWorldEnv(gym.Env):
        
 
     def _initiate_lookup(self):
-        # Determine if the lookup is successful based on the network state
-        # return True if successful, False otherwise
-        key = random.randint(0, 100)
+        ''' 
+            Determine if the lookup is successful based on the network state
+            return True if successful, False otherwise
+            update look up stats to help determine the lookup success rate
+        '''
+        # key should be the id of a node inside the network
+
+        maxint = self.network.bank_size
+        key = random.randint(1, maxint)
         result = self.network.lookup(key)
+        self.total_lookup_attempts += 1
         if result is not None:
+            self.successful_lookup_attempts += 1
             return True
+        self.failed_lookup_attempts += 1
         return False
 
     def _update_environment(self):
-        # Simulate network dynamics
-        # Nodes may join or leave, affecting the agent
-        # 50% chances for nodes to join or leave
+        ''' 
+            Simulate network dynamics
+            Nodes may join or leave, affecting the agent
+            50% chances for nodes to join or leave
+        '''
         if random.random() < 0.5:
             self.network.join_x_random_nodes(1)
         else:
@@ -123,6 +161,9 @@ class ChordWorldEnv(gym.Env):
         
 
     def _compute_reward(self, action, stability_score, is_successful_lookup):
+        ''' 
+            Compute reward based on the action taken and the network state
+        '''
         if action == Action.LOOKUP.value:
             reward = 1 if is_successful_lookup else -1
         elif action == Action.STABALIZE.value:
@@ -132,11 +173,15 @@ class ChordWorldEnv(gym.Env):
         return reward
     
     def _check_done(self):
-        # Define conditions for ending the episode
+        ''' 
+            Define conditions for ending the episode
+        '''
         return False  # Continuous task
 
     def close(self):
-        # Optional: clean up resources
+        ''' 
+            Optional: clean up resources
+        '''
         pass
 
 
@@ -160,7 +205,8 @@ class Node:
 
 class ChordNetwork:
     def __init__(self,size, r, bank_size, verbose = False):
-        self. verbose = verbose
+        self.bank_size = bank_size
+        self.verbose = verbose
         self.r = r # number of successor nodes a node can have
         self.node_bank: Dict[int, Node] = self.initialize_node_bank(bank_size)
         self.initialize_graph(size, r)
