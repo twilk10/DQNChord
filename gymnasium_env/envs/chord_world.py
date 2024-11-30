@@ -1,5 +1,3 @@
-import os
-import sys
 import gymnasium as gym 
 import numpy as np
 from typing import List, Dict, Optional
@@ -7,9 +5,6 @@ import random
 from enum import Enum
 from gymnasium.spaces import flatten_space, flatten
 
-
-# network = ChordNetwork(size=10, r=2, bank_size=20)
-# network.display_network()
 
 class Action(Enum):
     STABILIZE = 0
@@ -24,8 +19,11 @@ class ChordWorldEnv(gym.Env):
         self.max_steps = max_steps
         self.current_step = 0
 
-        # Initialize the network    
-        self.network = ChordNetwork(size=10, r=2, bank_size=20)
+        # Initialize the network 
+        # # Initialize the network    
+        self.network = ChordNetwork(n_nodes_to_activate=20, r=2, bank_size=40, verbose=True)
+        self.previous_network_state = None
+        self.network_state = None  
          
         # Define max network size and r based on the network
         self.max_network_size = self.network.bank_size  # This should be 20
@@ -47,12 +45,7 @@ class ChordWorldEnv(gym.Env):
         
         self.observation_space = flatten_space(self.original_observation_space)
 
-        self.stability_score = 1.0
-
-        # Initialize the network    
-        self.network = ChordNetwork(size=10, r=2, bank_size=20)
-        self.previous_network_state = None
-        self.network_state = None
+        self.stability_score = 0.0
 
         # Lookup stats
         self.total_lookup_attempts = 0
@@ -63,12 +56,10 @@ class ChordWorldEnv(gym.Env):
         self.is_successful_lookup = False
 
         # Stabilization score
-        self.stability_score= 1.0
-
-        
+        self.stability_score= 0.0
         
         self.state = None
-        self.reset()
+        # self.reset()
 
     def _get_obs(self):
         ''' 
@@ -80,25 +71,25 @@ class ChordWorldEnv(gym.Env):
             self.lookup_success_rate = 0.0
 
          # Initialize observations
-        active_nodes = np.zeros(self.max_network_size, dtype=np.int8)
-        finger_tables = np.full((self.max_network_size, self.r * 2), -1, dtype=np.int32)  # Fill with -1 for inactive nodes
+        active_nodes = []
+        finger_tables = np.full((self.max_network_size, self.r + 1), -1, dtype=np.int32)  # Fill with -1 for inactive nodes
 
        # Populate active_nodes and finger_tables
         for node_id, node in self.network.node_bank.items():
             if node.is_active:
-                active_nodes[node_id] = 1
+                active_nodes.append(node.id)
                 successors = node.finger_table.get('successors', [])
                 predecessors = node.finger_table.get('predecessors', [])
                 finger_entries = successors + predecessors
-                # Pad finger_entries to have length r*2
-                # finger_entries += [-1] * (self.r + 1 - len(finger_entries))
-                # finger_tables[node_id] = np.array(finger_entries)
+                # # Pad finger_entries 
+                finger_entries += [-1] * (self.r + 1 - len(finger_entries))
+                finger_tables[node_id] = np.array(finger_entries)
                 
         observation = {
             'lookup_success_rate': np.array([self.lookup_success_rate], dtype=np.float32),
             'stability_score': np.array([self.stability_score], dtype=np.float32),
-            'active_nodes': active_nodes,
-                'finger_tables': finger_tables,
+            'active_nodes': np.array(active_nodes, dtype=np.int8),
+            'finger_tables': finger_tables,
         }
 
         flat_observaton = flatten(self.original_observation_space, observation)
@@ -109,17 +100,18 @@ class ChordWorldEnv(gym.Env):
         # self.state = self._initialize_state()
 
         # Initialize the network    
-        self.network = ChordNetwork(size=10, r=2, bank_size=20)
+        self.network = ChordNetwork(n_nodes_to_activate=20, r=2, bank_size=40, verbose=True)
 
         # Reset other variables
-        self.stability_score = 1.0
+        self.stability_score = 0.0
         self.previous_network_state = None
         self.state = None
         self.is_successful_lookup = False
-        self.lookup_success_rate = 1.0
+        self.lookup_success_rate = 0.0
         self.total_lookup_attempts = 0
         self.failed_lookup_attempts = 0
         self.successful_lookup_attempts = 0
+        self.current_step = 0
         self.network_state = self._initialize_network()
         observation = self._get_obs()
 
@@ -132,7 +124,6 @@ class ChordWorldEnv(gym.Env):
         self._update_environment()
 
         # agent will take an action
-        action = Action(action) # Ensure the action is of type Action
         self._take_action(action)
 
         # compute reward
@@ -164,6 +155,7 @@ class ChordWorldEnv(gym.Env):
             self._stabilize()
         elif action == Action.LOOKUP.value:
             self._initiate_lookup()
+
     def _stabilize(self):
         ''' 
             Stabilization from Chord
@@ -199,7 +191,7 @@ class ChordWorldEnv(gym.Env):
         if total_entries > 0:
             self.stability_score = correct_entries / total_entries
         else:
-            self.stability_score = 1.0  # No entries to compare
+            self.stability_score = 0.0  # No entries to compare
 
 
     def _initiate_lookup(self):
@@ -278,19 +270,19 @@ class Node:
                 f"\t Finger Table: {self.finger_table}\n")
 
 class ChordNetwork:
-    def __init__(self,size, r, bank_size, verbose = False):
-        self.size = size
+    def __init__(self,n_nodes_to_activate, r, bank_size, verbose = False):
+        self.n_nodes_to_activate = n_nodes_to_activate
         self.bank_size = bank_size
         self.verbose = verbose
         self.r = r # number of successor nodes a node can have
         self.node_bank: Dict[int, Node] = self.initialize_node_bank(bank_size)
-        self.initialize_graph(size, r)
+        self.activate_n_nodes(n_nodes_to_activate, r)
         if self.verbose:
             print('Initialization Done!')
     
     def initialize_node_bank(self, bank_size):
         if self.verbose:
-            print('Initializing node bank...')
+            print(f'Initializing node bank of size {bank_size}...')
         bank = {}
         for i in range(bank_size):
             if i not in bank:
@@ -298,16 +290,16 @@ class ChordNetwork:
                 bank[node.id] = node
         return bank
     
-    def initialize_graph(self, size, r):
+    def activate_n_nodes(self, n_nodes_to_activate, r):
         if self.verbose:
-            print('initializing graph...')
+            print(f'Activating {n_nodes_to_activate} Nodes...')
 
-        # Activate the first 'size' nodes from the node bank
-        for i in range(size):
+        # Activate the first 'n' nodes from the node bank
+        for i in range(n_nodes_to_activate):
             node = self.node_bank[i]
             node.is_active = True
 
-        for i in range(size):
+        for i in range(n_nodes_to_activate):
             node = self.node_bank[i]
             self.assign_successors_and_predecessors(node, r, initial_run= True)
            
@@ -340,19 +332,30 @@ class ChordNetwork:
 
     def drop_x_random_nodes(self, x: int):
         # drop x random active from the network
-        active_nodes = [n for n in self.node_bank.values() if n.is_active]
+       
+        
         for i in range(x):
+            active_nodes = [n for n in self.node_bank.values() if n.is_active]
+
+            if len(active_nodes) <= x:
+                raise ValueError(f"Not enough active nodes to drop {x} nodes.")
+            
             node_to_drop = random.choice(active_nodes)
+            # We cannot drop the Node with id 0
+            while node_to_drop.id == 0:
+                node_to_drop = random.choice(active_nodes)
             self.leave_network(node_to_drop)
-            active_nodes.remove(node_to_drop)
 
     def join_x_random_nodes(self, x: int):
         # join x random inactive nodes to the network
-        inactive_nodes = [n for n in self.node_bank.values() if not n.is_active]
         for i in range(x):
+            inactive_nodes = [n for n in self.node_bank.values() if not n.is_active]
+
+            if len(inactive_nodes) <= x:
+                raise ValueError(f"Not enough inactive nodes to join {x} nodes.")
+            
             node_to_join = random.choice(inactive_nodes)
             self.join_network(node_to_join)
-            inactive_nodes.remove(node_to_join)
 
     def lookup(self, key: int):
         if self.verbose:
@@ -362,8 +365,11 @@ class ChordNetwork:
             return 0
 
         node_0_finger_table = self.node_bank[0].finger_table
+
         if key in node_0_finger_table['successors']:
-            return node_0_finger_table['successors'][key]
+            # This means the key is in the finger table of the node 0
+            # Hence return the node 0
+            return 0
 
         network_size = len([n for n in self.node_bank.values() if n.is_active])
         max_hops = network_size - 1
@@ -435,7 +441,6 @@ class ChordNetwork:
             successor_node_id = active_nodes_ids[successor_index]
             ideal_finger_table['successors'].append(successor_node_id)
         
-        # Compute ideal predecessors (for simplicity, assume 1 predecessor)
         predecessor_index = (node_index - 1) % total_number_of_active_nodes
         predecessor_node_id = active_nodes_ids[predecessor_index]
         ideal_finger_table['predecessors'] = [predecessor_node_id]
