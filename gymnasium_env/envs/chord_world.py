@@ -1,10 +1,9 @@
 import gymnasium as gym 
 import numpy as np
-from typing import List, Dict, Optional
+from typing import Dict, List
 import random
 from enum import Enum
 from gymnasium.spaces import flatten_space, flatten
-
 
 class Action(Enum):
     STABILIZE = 0
@@ -19,8 +18,7 @@ class ChordWorldEnv(gym.Env):
         self.max_steps = max_steps
         self.current_step = 0
 
-        # Initialize the network 
-        # # Initialize the network    
+        # Initialize the network  
         self.verbose = False
         self.network = ChordNetwork(n_nodes_to_activate=20, r=2, bank_size=40, verbose=self.verbose)
         self.previous_network_state = None
@@ -47,8 +45,6 @@ class ChordWorldEnv(gym.Env):
         
         self.observation_space = flatten_space(self.original_observation_space)
 
-        self.stability_score = 0.0
-
         # Lookup stats
         self.total_lookup_attempts = 0
         self.failed_lookup_attempts = 0
@@ -58,7 +54,8 @@ class ChordWorldEnv(gym.Env):
         self.is_successful_lookup = False
 
         # Stabilization score
-        self.stability_score= 0.0
+        self.previous_stability_score = 0.0
+        self.stability_score = 0.0
         
         self.state = None
         # self.reset()
@@ -114,7 +111,8 @@ class ChordWorldEnv(gym.Env):
         self.min_network_size = self.network.r+2
         self.max_network_size = self.network.bank_size  # This should be 20
         self.r = self.network.r  # This should be 2
-  
+    
+        self.previous_stability_score = 0.0
         self.stability_score = 0.0
 
         # Lookup stats
@@ -177,38 +175,9 @@ class ChordWorldEnv(gym.Env):
             Stabilization from Chord
             Return stability score. Value between 0 and 1
         '''
+        self.previous_stability_score = self.stability_score
         self.network.stabilize()
-        self.network_state = self.network.get_network_state()
-        
-        # Compute the stability score based on finger table correctness
-        total_entries = 0
-        correct_entries = 0
-        for node_id, node in self.network.node_bank.items():
-            if node.is_active:
-                ideal_finger_table = self.network.compute_ideal_finger_table(node)
-                actual_finger_table = node.finger_table
-                
-                # Compare the actual finger table with the ideal finger table
-                for key in ['predecessors', 'successors']:
-                    ideal_list = ideal_finger_table.get(key, [])
-                    actual_list = actual_finger_table.get(key, [])
-                    
-                    # Ensure both lists are of the same length
-                    max_len = max(len(ideal_list), len(actual_list))
-                    # Pad shorter list with -1
-                    ideal_list += [-1] * (max_len - len(ideal_list))
-                    actual_list += [-1] * (max_len - len(actual_list))
-                    
-                    total_entries += max_len
-                    # Compare entries one by one
-                    for ideal_entry, actual_entry in zip(ideal_list, actual_list):
-                        if ideal_entry == actual_entry:
-                            correct_entries += 1
-        if total_entries > 0:
-            self.stability_score = correct_entries / total_entries
-        else:
-            self.stability_score = 0.0  # No entries to compare
-
+        self.stability_score = self._calculate_stability_score()
 
     def _initiate_lookup(self):
         ''' 
@@ -243,8 +212,38 @@ class ChordWorldEnv(gym.Env):
             self.network.join_x_random_nodes(1)
         else:
             self.network.drop_x_random_nodes(1)
-        
 
+
+        # calculate the stability score
+        # check if the finger tables are correct after adding and dropping nodes
+        self.stability_score = self._calculate_stability_score()
+
+    def _calculate_stability_score(self):
+        total_entries = 0
+        correct_entries = 0
+        active_nodes = [node for node in self.network.node_bank.values() if node.is_active]
+        for node in active_nodes:
+            ideal_finger_table = self.network.compute_ideal_finger_table(node)
+            actual_finger_table = node.finger_table# print(f'Ideal finger table: {ideal_finger_table}')
+            # print(f'Actual finger table: {actual_finger_table}')
+            # Ensure both lists are of the same length
+            max_len = max(len(ideal_finger_table['successors']), len(actual_finger_table['successors']))
+            # Pad shorter list with -1
+            ideal_finger_table['successors'] += [-1] * (max_len - len(ideal_finger_table['successors']))
+            actual_finger_table['successors'] += [-1] * (max_len - len(actual_finger_table['successors']))
+                
+                # total_entries += max_len
+            # Compare entries one by one
+            for ideal_entry, actual_entry in zip(ideal_finger_table['successors'], actual_finger_table['successors']):
+                total_entries += 1
+                if ideal_entry == actual_entry:
+                        correct_entries += 1
+        if total_entries > 0:
+            # print(f'-----------------Stability score: {correct_entries / total_entries}')
+            return correct_entries / total_entries
+        else:
+            return 0.0
+        
     def _compute_reward(self, action):
         ''' 
             Compute reward based on the action taken and the network state
@@ -252,7 +251,10 @@ class ChordWorldEnv(gym.Env):
         if action == Action.LOOKUP.value:
             reward = 1 if self.is_successful_lookup else -1
         elif action == Action.STABILIZE.value:
-            reward = 1 if self.stability_score > 0.8 else -1
+            if abs(self.previous_stability_score - self.stability_score) <= 0.2:
+                reward = -1
+            else:
+                reward = 1
         else:
             reward = 0
         return reward
@@ -277,7 +279,7 @@ class Node:
         self.is_active = active_status
         self.id = id
         self.is_agent = True if self.id == 0 else False
-        self.finger_table = {
+        self.finger_table: Dict[str, List[int]] = {
             'predecessors': [],
             'successors': []
         }
@@ -298,6 +300,10 @@ class ChordNetwork:
         self.r = r # number of successor nodes a node can have
         self.node_bank: Dict[int, Node] = self.initialize_node_bank(bank_size)
         self.activate_n_nodes(n_nodes_to_activate, r)
+
+        # print('Node bank:')
+        # for node in self.node_bank.values():
+        #     print(node)
         if self.verbose:
             print('Initialization Done!')
     
@@ -351,11 +357,15 @@ class ChordNetwork:
         predecessor_index = (node_index - 1) % total_number_of_active_nodes
         predecessor_node_id = active_nodes_ids[predecessor_index]
         node.finger_table['predecessors'] = [predecessor_node_id]
+    
+    def randomly_assign_successors_and_predecessors(self, node: Node, r: int):
+        # randomly assign successors and predecessors to a node
+        active_nodes_ids = sorted([n.id for n in self.node_bank.values() if n.is_active])
+        node.finger_table['successors'] = random.sample(active_nodes_ids, r)
+        node.finger_table['predecessors'] = random.sample(active_nodes_ids, 1)
 
     def drop_x_random_nodes(self, x: int):
         # drop x random active from the network
-       
-        
         for i in range(x):
             active_nodes = [n for n in self.node_bank.values() if n.is_active]
 
@@ -428,17 +438,17 @@ class ChordNetwork:
 
     def join_network(self, node: Node):
         node.set_active_status(True)
-        self.assign_successors_and_predecessors(node, self.r)
-        self.stabilize()
+        # self.assign_successors_and_predecessors(node, self.r)
+        # self.stabilize()
         if self.verbose:
             print(f"Node {node.id} has joined the network.\n")
 
     def leave_network(self, node: Node): 
         node.set_active_status(False)
         # Clear the node's finger table
-        node.finger_table = {'predecessors': [], 'successors': []}
+        # node.finger_table = {'predecessors': [], 'successors': []}
             
-        self.stabilize()
+        # self.stabilize()
         if self.verbose:
             print(f"Node {node.id} has left the network.\n")
 
@@ -447,6 +457,12 @@ class ChordNetwork:
         active_nodes = [node for node in self.node_bank.values() if node.is_active]
         for node in active_nodes:
             self.assign_successors_and_predecessors(node, self.r)
+
+    def randomly_stabilize(self):
+        # updates finger tables of active nodes only
+        active_nodes = [node for node in self.node_bank.values() if node.is_active]
+        for node in active_nodes:
+            self.randomly_assign_successors_and_predecessors(node, self.r)
 
     def compute_ideal_finger_table(self, node: Node):
         active_nodes_ids = sorted([n.id for n in self.node_bank.values() if n.is_active])
