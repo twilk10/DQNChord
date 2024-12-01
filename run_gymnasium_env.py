@@ -99,7 +99,7 @@ class DQN_Agent:
         self.replay_memory = ReplayMemory(memory_capacity)
         
         self.clip_grad_norm = clip_grad_norm
-        self.criterion = nn.MSELoss()
+        self.criterion = nn.SmoothL1Loss()
         self.optimizer = optim.Adam(self.main_network.parameters(), lr=learning_rate)
                 
     def select_action(self, state):
@@ -251,10 +251,12 @@ def train(agent, env):
     agent.plot_training()
 
 def test(agent, env, max_episodes, path):  
+    # Load the saved model
     agent.agent.main_network.load_state_dict(torch.load(path))
     agent.agent.main_network.eval()
     
-    success_count = 0
+    # Success counters
+    stability_success_count = 0
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     original_obs_space = env.unwrapped.original_observation_space  # Access the original observation space
 
@@ -265,7 +267,7 @@ def test(agent, env, max_episodes, path):
         truncation = False
         step_size = 0
         episode_reward = 0
-        lookup_success_rate = 0.0
+        stability_score = 0.0  # Initialize stability score for the episode
                                                                 
         while not done and not truncation:
             # Normalize state
@@ -279,42 +281,42 @@ def test(agent, env, max_episodes, path):
             episode_reward += reward
             step_size += 1
 
-        # After the episode ends, access lookup_success_rate
+        # After the episode ends, extract stability_score
         state_np = state_tensor.cpu().numpy()
         obs_dict = unflatten(original_obs_space, state_np)
-        lookup_success_rate = obs_dict['lookup_success_rate'][0]
+        stability_score = obs_dict['stability_score'][0]
 
-        if lookup_success_rate >= 0.9:
-            succeed = True
-            success_count += 1
-        else:
-            succeed = False
+        # Check if the stability_score meets the success criterion
+        stability_threshold = 0.8  # Define your success threshold
+        if stability_score >= stability_threshold:
+            stability_success_count += 1
 
         # Print episode result
         result = (f"Episode: {episode}, "
                   f"Steps: {step_size}, "
                   f"Reward: {episode_reward:.2f}, "
-                  f"Lookup Success Rate: {lookup_success_rate:.2f}, "
-                  f"Succeed: {succeed}")
+                  f"Stability Score: {stability_score:.2f}, "
+                  f"Success: {'Yes' if stability_score >= stability_threshold else 'No'}")
         print(result)
     
     # Calculate and print overall success rate
-    success_rate = success_count / max_episodes * 100
-    print(f"\nOverall Success Rate: {success_rate:.2f}%")
+    success_rate_based_on_stability = (stability_success_count / max_episodes) * 100
+    print(f"\nOverall Success Rate Based on Stability: {success_rate_based_on_stability:.2f}%")
+
 
 def main():
     print(f"Using device: {device}")
     env = gym.make('gymnasium_env/ChordWorldEnv-v0')
 
     RL_hyperparams = {
-        "clip_grad_norm": 1.0,
-        "learning_rate": 1e-4,
+        "clip_grad_norm": 3.0,
+        "learning_rate": 1e-5,
         "discount_factor": 0.99,
         "batch_size": 64,
-        "update_frequency": 100,
-        "max_episodes": 5000,
+        "update_frequency": 1000,
+        "max_episodes": 3000,
         "max_steps": 200,
-        "epsilon_max": 1.0, 
+        "epsilon_max": 0.999, 
         "epsilon_min": 0.01,
         "decay_episodes": 3000,
         "memory_capacity": 10000,
