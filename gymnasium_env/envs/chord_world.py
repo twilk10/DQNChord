@@ -7,13 +7,15 @@ from gymnasium.spaces import flatten_space, flatten
 
 class Action(Enum):
     STABILIZE = 0
-    LOOKUP = 1
+    DO_NOTHING = 1
 
 class ChordWorldEnv(gym.Env):
     metadata = {'render.modes': ['human']}
     
-    def __init__(self, max_steps = 100):
+    def __init__(self, max_steps = 100, seed = 42):
         super(ChordWorldEnv, self).__init__()
+
+        self.seed(seed)
 
         self.max_steps = max_steps
         self.current_step = 0
@@ -60,14 +62,20 @@ class ChordWorldEnv(gym.Env):
         self.state = None
         # self.reset()
 
+    def seed(self, seed = None):
+        self.np_random, seed = gym.utils.seeding.np_random(seed)
+        random.seed(seed)
+        np.random.seed(seed)
+        return [seed]
+    
     def _get_obs(self):
         ''' 
             Get the observation
         '''
-        if self.total_lookup_attempts > 0:
-            self.lookup_success_rate = self.successful_lookup_attempts / self.total_lookup_attempts
-        else:
-            self.lookup_success_rate = 0.0
+        # if self.total_lookup_attempts > 0:
+        #     self.lookup_success_rate = self.successful_lookup_attempts / self.total_lookup_attempts
+        # else:
+        #     self.lookup_success_rate = 0.0
 
          # Initialize observations
         active_nodes = np.zeros(self.max_network_size, dtype=np.int8)
@@ -85,6 +93,8 @@ class ChordWorldEnv(gym.Env):
                 finger_entries += [-1] * (self.r + 1 - len(finger_entries))
                 finger_tables[node_id] = np.array(finger_entries)
                 
+        # self.lookup_success_rate = self._calculate_lookup_success_rate()
+        
         observation = {
             'lookup_success_rate': np.array([self.lookup_success_rate], dtype=np.float32),
             'stability_score': np.array([self.stability_score], dtype=np.float32),
@@ -124,7 +134,7 @@ class ChordWorldEnv(gym.Env):
         self.is_successful_lookup = False
 
         # Stabilization score
-        self.stability_score= 0.0
+        self.stability_score = self._calculate_stability_score()
         
         self.state = None
         observation = self._get_obs()
@@ -134,14 +144,24 @@ class ChordWorldEnv(gym.Env):
     def step(self, action):
         self.current_step += 1
 
-        # update the netwrk
+        # Record the stability score before the environment update
+        stability_before_update = self._calculate_stability_score()
+
+        # update the environment
         self._update_environment()
 
-        # agent will take an action
-        self._take_action(action)
+        # Calculate stability score after the environment update
+        stability_after_update = self._calculate_stability_score()
 
-        # compute reward
-        reward = self._compute_reward(action)
+        # Agent takes an action
+        self._take_action(action)
+        
+        # Calculate stability score after the agent's action
+        stability_after_action = self._calculate_stability_score()  
+        self.stability_score = stability_after_action
+
+        # Compute reward based on the action and changes in stability
+        reward = self._compute_reward(action, stability_before_update, stability_after_update, stability_after_action)
 
         # Get new observation
         self.state = self._get_obs()
@@ -156,7 +176,7 @@ class ChordWorldEnv(gym.Env):
 
     def _initialize_network(self):
         ''' 
-            State of the network should be set randomly
+            State of the network should be set 
         '''
         self.network_state = self.network.get_network_state()
         return self.network_state
@@ -167,35 +187,32 @@ class ChordWorldEnv(gym.Env):
         '''
         if action == Action.STABILIZE.value:
             self._stabilize()
-        elif action == Action.LOOKUP.value:
-            self._initiate_lookup()
 
     def _stabilize(self):
         ''' 
             Stabilization from Chord
             Return stability score. Value between 0 and 1
         '''
-        self.previous_stability_score = self.stability_score
         self.network.stabilize()
-        self.stability_score = self._calculate_stability_score()
+        
 
-    def _initiate_lookup(self):
-        ''' 
-            Determine if the lookup is successful based on the network state
-            return True if successful, False otherwise
-            update look up stats to help determine the lookup success rate
-        '''
-        # key should be the id of a node inside the network
+    # def _initiate_lookup(self):
+    #     ''' 
+    #         Determine if the lookup is successful based on the network state
+    #         return True if successful, False otherwise
+    #         update look up stats to help determine the lookup success rate
+    #     '''
+    #     # key should be the id of a node inside the network
 
-        key = random.randint(1, self.network.bank_size)
-        result = self.network.lookup(key)
-        self.total_lookup_attempts += 1
-        if result is not None:
-            self.successful_lookup_attempts += 1
-            self.is_successful_lookup = True
-        else:
-            self.failed_lookup_attempts += 1
-            self.is_successful_lookup = False
+    #     key = random.randint(1, self.network.bank_size)
+    #     result = self.network.lookup(key)
+    #     self.total_lookup_attempts += 1
+    #     if result is not None:
+    #         self.successful_lookup_attempts += 1
+    #         self.is_successful_lookup = True
+    #     else:
+    #         self.failed_lookup_attempts += 1
+    #         self.is_successful_lookup = False
 
     def _update_environment(self):
         ''' 
@@ -205,19 +222,30 @@ class ChordWorldEnv(gym.Env):
         '''
         current_network_size = len([n for n in self.network.node_bank.values() if n.is_active])
         while current_network_size < self.min_network_size:
-            self.network.join_x_random_nodes(1)
+            self.network.join_x_random_nodes(x=1)
             current_network_size = len([n for n in self.network.node_bank.values() if n.is_active])
 
-        if random.random() < 0.5:
-            self.network.join_x_random_nodes(1)
-        else:
-            self.network.drop_x_random_nodes(1)
+        if random.random() < 0.33:
+            self.network.join_x_random_nodes(x=1)
+        elif random.random() < 0.66:
+            self.network.drop_x_random_nodes(x=1)
 
-
-        # calculate the stability score
-        # check if the finger tables are correct after adding and dropping nodes
-        self.stability_score = self._calculate_stability_score()
-
+    def _calculate_lookup_success_rate(self):
+        ''' 
+            Calculate the lookup success rate
+        '''
+        active_node_ids = [node.id for node in self.network.node_bank.values() if node.is_active]
+        total_lookup_attempts = len(active_node_ids)
+        successful_lookup_attempts = 0
+        seen_nodes = set()
+        for key in active_node_ids:
+            # key = random.randint(1, self.network.bank_size)
+            result = self.network.lookup(key)
+            if result is not None:
+                successful_lookup_attempts += 1
+            seen_nodes.add(key)
+        return successful_lookup_attempts / total_lookup_attempts
+    
     def _calculate_stability_score(self):
         total_entries = 0
         correct_entries = 0
@@ -244,20 +272,35 @@ class ChordWorldEnv(gym.Env):
         else:
             return 0.0
         
-    def _compute_reward(self, action):
+    def _compute_reward(self, action, stability_before, stability_after_env, stability_after_action):
         ''' 
             Compute reward based on the action taken and the network state
         '''
-        if action == Action.LOOKUP.value:
-            reward = 1 if self.is_successful_lookup else -1
-        elif action == Action.STABILIZE.value:
-            if abs(self.previous_stability_score - self.stability_score) <= 0.2:
-                reward = -1
+        reward = 0
+
+        # Determine if the network became less stable after the environment update
+        network_became_unstable = stability_after_env < stability_before
+
+        # Determine if the agent's action improved stability
+        stability_improved = stability_after_action > stability_after_env
+
+        # Agent's decision and its impact
+        if action == Action.STABILIZE.value:
+            if stability_improved:
+                reward = 1  # Positive reward for improving stability
             else:
-                reward = 1
-        else:
-            reward = 0
-        return reward
+                reward = -1  # Penalty for failing to improve stability
+                # we need to actually stabilize the network
+                # self.network.stabilize()
+
+        elif action == Action.DO_NOTHING.value:
+            if network_became_unstable:
+                reward = -1  # Penalty for not addressing instability
+                # self.network.stabilize()
+            else:
+                reward = 1  # Positive reward for maintaining stability
+
+        return reward   
     
     def _check_done(self):
         ''' 
