@@ -388,6 +388,9 @@ class ChordNetwork:
         
         # Get the index of the current node in the sorted active nodes list
         node_index = active_nodes_ids.index(node.id)
+
+        #check the successor predecessor if matches itself don't care if doesnt figure where new node needs to go 
+        #In this code if and else statement prepared for placing node if you do not know where it goes
         
         # Assign successors (based on Chord's finger table definition)
         node.finger_table['successors'] = []
