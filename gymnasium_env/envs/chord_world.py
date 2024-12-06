@@ -473,14 +473,15 @@ class ChordNetwork:
         # Assuming at least one other active node exists
         print(f'joining node: {node.id}')
         n_prime = random.choice([n for n in self.node_bank.values() if n.is_active and n.id != node.id])
-        print(f'n_prime: {n_prime.id}')
+        print(f'chose random node n_prime that will find the successor of {node.id}: {n_prime.id}')
         node.successor = self.find_successor(n_prime, node.id).id
+        print(f'found successor of {node.id}: {node.successor}')
         # Initialize finger table
-        self.fix_fingers(node)
-        # Stabilize the node
-        self.stabilize(node)
-        if self.verbose:
-            print(f"Node {node.id} has joined the network.\n")
+        # self.fix_fingers(node)
+        # # Stabilize the node
+        # self.stabilize(node)
+        # if self.verbose:
+        #     print(f"Node {node.id} has joined the network.\n")
 
 
     def leave_network_gracefully(self, node: Node): 
@@ -540,3 +541,6 @@ class ChordNetwork:
 if __name__ == "__main__":
     network = ChordNetwork(m= 4, verbose=True)
     # network.display_network()
+    new_node = Node(id=6, active_status=False)
+    network.join_network(new_node)
+    network.display_network()
