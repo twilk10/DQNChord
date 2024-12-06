@@ -5,6 +5,24 @@ import random
 from enum import Enum
 from gymnasium.spaces import flatten_space, flatten
 
+import hashlib
+
+def hash_identifier(identifier: str, m: int) -> int:
+    """
+    Hashes a string identifier using SHA-1 and maps it to the identifier space [0, 2^m - 1].
+
+    Args:
+        identifier (str): The unique identifier for the node (e.g., IP address).
+        m (int): Number of bits in the identifier space.
+
+    Returns:
+        int: The hashed identifier within [0, 2^m - 1].
+    """
+    hash_bytes = hashlib.sha1(identifier.encode('utf-8')).digest()
+    hash_int = int.from_bytes(hash_bytes, byteorder='big')
+    return hash_int % (2 ** m)
+
+
 class Action(Enum):
     STABILIZE = 0
     DO_NOTHING = 1
@@ -318,140 +336,152 @@ class ChordWorldEnv(gym.Env):
 
 
 class Node:
-    def __init__(self, id, active_status, predecessor = None, successor = None, finger_table = []):
+    def __init__(self, id, active_status, predecessor=None, successor=None, finger_table=None):
         self.is_active = active_status
         self.id = id
         self.predecessor = predecessor
         self.successor = successor
-        self.finger_table: List[int] = finger_table
-    
+        self.finger_table: List[int] = finger_table if finger_table is not None else []
+        self.keys: List[int] = []  # Initialize keys list
+
     def set_active_status(self, new_status):
         self.is_active = new_status
+
     def __str__(self):
         return (f"\t Node Id: {self.id}\n"
                 f"\t Active Status: {self.is_active}\n"
-                f"\t Finger Table: {self.finger_table}\n")
+                f"\t Predecessor: {self.predecessor}\n"
+                f"\t Successor: {self.successor}\n"
+                f"\t Finger Table: {self.finger_table}\n"
+                f"\t Keys: {self.keys}\n")
+
 
 class ChordNetwork:
-    def __init__(self,n_nodes_to_activate, r, bank_size, verbose = False):
-        self.n_nodes_to_activate = n_nodes_to_activate
-        self.bank_size = bank_size
+    def __init__(self,m=4, verbose = False):
+        self.m = m
+        self.max_network_size = 2 ** self.m
+        self.n_nodes_to_activate = self.max_network_size // 2
         self.verbose = verbose
-        self.r = r # number of successor nodes a node can have
-        self.node_bank: Dict[int, Node] = self.initialize_node_bank(bank_size)
-        self.activate_n_nodes(n_nodes_to_activate, r)
+        self.node_bank: Dict[int, Node] = {}
 
-        # print('Node bank:')
-        # for node in self.node_bank.values():
-        #     print(node)
+        self.initialize_node_bank()
+        self.activate_n_nodes()
+        
         if self.verbose:
             print('Initialization Done!')
     
-    def initialize_node_bank(self, bank_size):
+    def initialize_node_bank(self):
         if self.verbose:
-            print(f'Initializing node bank of size {bank_size}...')
-        bank = {}
-        for i in range(bank_size):
-            if i not in bank:
+            print(f'Initializing node bank with identifier space size {self.max_network_size}...')
+        
+        for i in range(self.max_network_size):
+            if i not in self.node_bank:
                 node = Node(id=i, active_status=False)
-                bank[node.id] = node
-        return bank
+                self.node_bank[node.id] = node
     
-    def activate_n_nodes(self, n_nodes_to_activate, r):
+    def activate_n_nodes(self):
         if self.verbose:
-            print(f'Activating {n_nodes_to_activate} Nodes...')
+            print(f'Activating {self.n_nodes_to_activate} Nodes...')
 
         # Activate the first 'n' nodes from the node bank
-        for i in range(n_nodes_to_activate):
+        for i in range(self.n_nodes_to_activate):
             node = self.node_bank[i]
             node.is_active = True
 
-        for i in range(n_nodes_to_activate):
+        for i in range(self.n_nodes_to_activate):
             node = self.node_bank[i]
-            self.assign_initial_successors_and_predecessors(node, r, initial_run= True)
-           
+            self.join_network(node)
+          
+        for i in range(self.n_nodes_to_activate):
+            node = self.node_bank[i]
+            node.finger_table = [None] * self.m
 
-    def assign_initial_successors_and_predecessors(self, node: Node, r: int, initial_run = False):
-        # Get the list of active node IDs in ascending order
-        active_nodes_ids = sorted([n.id for n in self.node_bank.values() if n.is_active])
-        total_number_of_active_nodes = len(active_nodes_ids)
-
-        # Validate input
-        if not initial_run and node.id not in active_nodes_ids:
-            raise ValueError(f"Node {node.id} is not active or missing from the active nodes.")
-        if not initial_run and r > total_number_of_active_nodes:
-            print('Active nodes:', active_nodes_ids)
-            raise ValueError(f"Not enough active nodes to assign {r} successors/predecessors.")
-        
-        # Get the index of the current node in the sorted active nodes list
-        node_index = active_nodes_ids.index(node.id)
-        
-        # Assign successors (based on Chord's finger table definition)
-        node.finger_table = []
-        for i in range(r):
-            successor_index = (node_index + pow(2, i)) % total_number_of_active_nodes
-            successor_node_id = active_nodes_ids[successor_index]
-            node.finger_table.append(successor_node_id)
-        
-        # Assign predecessor (only one predecessor for this use case)
-        predecessor_index = (node_index - 1) % total_number_of_active_nodes
-        predecessor_node_id = active_nodes_ids[predecessor_index]
-        node.predecessor = predecessor_node_id
+            # Call fix_fingers to populate finger table
+            if self.verbose:
+                print(f"Node {node.id}: Fixing fingers...")
+            self.fix_fingers(node)
+            # Stabilize the node to update predecessor and successor   
     
     def find_successor(self, node:Node, id):# ask Node n to find the successor of id
+        print(f'finding successor of {id}')
         predecessor = self.find_predecessor(node, id)
-        return predecessor.successor
-       
+        print(f'predecessor of {id} is: {predecessor.id}')
+        successor_id = predecessor.successor
+        print(f'successor of {id} is: {successor_id}')
+        return self.node_bank[successor_id]
+    
     def find_predecessor(self, node:Node, id:int):
+        print(f'finding predecessor of {id}')
         n_prime = node
-        while id not in n_prime.finger_table['successors']:
+        while not self._is_in_interval(id, n_prime.id, n_prime.successor):
             n_prime = self.closest_preceding_node(n_prime, id)
+        print(f'predecessor of {id} is: {n_prime.id}')
         return n_prime
     
-    def closest_preceding_node(self, n: Node, id:int):
-        sorted_successors = sorted(n.finger_table['successors'])
-        for successor in sorted_successors:
-            if successor > id:
-                return successor
-        return sorted_successors[-1]
+    def closest_preceding_node(self, node: Node, id: int):
+        print(f'finding closest preceding node of {id}')
+        for i in reversed(range(self.m)):  # Use self.m instead of self.r
+            finger_id = node.finger_table[i]
+            if finger_id is None:
+                continue  # Skip if finger is not set
+            finger_node = self.node_bank.get(finger_id)
+            if finger_node and self._is_in_interval(finger_node.id, node.id, id):
+                return finger_node
+        return node
     
-    def stabilize(self, current_node: Node): # updates predecessor and successor pointers
-        n_s = current_node.successor
-
-        # ask n_s for its predecessor
-        n_s_predecessor: Node = self.node_bank[n_s.id].predecessor # n_s returns n as its predecessor
-
-        # check if n_s_predeccessor should be a successor of the current node
-        if n_s_predecessor.id != current_node.id:
-            # update the current node's successor to the n_s_predecessor that was returned 
-            current_node.successor = n_s_predecessor.id
-            current_node.finger_table.append(n_s_predecessor.id) # add to the current node's finger table, The order of this table will be updated by fix_fingers()   
+    def _is_in_interval(self, x:int, start:int, end:int):
+        # handle circular interval
+        if start < end:
+            return start < x < end
+        else:
+            return x > start or x < end
         
-            # notifies n_s_predecessor that its predecessor has changed to current node
-            self.notify(current_node, n_s_predecessor) 
+    def stabilize(self, node: Node): # updates predecessor and successor pointers
+        successor_node = self.node_bank[node.successor]
+        x_id = successor_node.predecessor
+
+        if x_id and self._is_in_interval(x_id, node.id, successor_node.id):
+            node.successor = x_id
+           
+        self.notify(node, successor_node)
 
 
-    def notify(self,n_prime: Node,  node: Node ): # Notifies the node that n_prime is now its predecessor
-        node.predecessor = n_prime.id
-        if self.verbose:
-            print(f"Node {node.id} has been notified that Node {n_prime.id} is now its predecessor.\n") 
+    def notify(self, node: Node, successor_node: Node):
+        if successor_node.predecessor is None or self._is_in_interval(node.id, successor_node.predecessor, successor_node.id):
+            successor_node.predecessor = node.id
+
    
-    def fix_fingers(self, node: Node):
+    def fix_fingers(self, node: Node): # update the finger table of a node
         # Need to look into this better
-        for finger_index in range(len(node.finger_table)):
-            finger = node.finger_table[finger_index]
-            successor = self.find_successor(node, finger)
-            node.finger_table[finger_index] = successor
+        for i in range(self.m):
+            # start_i is the index of the finger in the finger table
+            start_i = (node.id + pow(2, i)) % pow(2, self.m)
+            # find the successor of start_i
+            successor = self.find_successor(node, start_i)
+            # update the finger table
+            node.finger_table[i] = successor.id
+            if i == 0:
+                node.successor = successor.id
+            if self.verbose:
+                print(f"Node {node.id}: Fixed finger {i} to Node {successor.id}.")
+                self.display_network()
+
    
     def join_network(self, node: Node):
         node.set_active_status(True)
         node.predecessor = None
-        n_prime = random.choice([n for n in self.node_bank.values() if n.is_active])
-        successor = self.find_successor(n_prime, node.id)
-        node.successor = successor
-
+        # Assuming at least one other active node exists
+        print(f'joining node: {node.id}')
+        n_prime = random.choice([n for n in self.node_bank.values() if n.is_active and n.id != node.id])
+        print(f'n_prime: {n_prime.id}')
+        node.successor = self.find_successor(n_prime, node.id).id
+        # Initialize finger table
+        self.fix_fingers(node)
+        # Stabilize the node
+        self.stabilize(node)
         if self.verbose:
             print(f"Node {node.id} has joined the network.\n")
+
 
     def leave_network_gracefully(self, node: Node): 
         node.set_active_status(False)
@@ -493,26 +523,6 @@ class ChordNetwork:
                 node_to_drop = random.choice(active_nodes)
             self.leave_network(node_to_drop)
 
-    def compute_ideal_finger_table(self, node: Node):
-        active_nodes_ids = sorted([n.id for n in self.node_bank.values() if n.is_active])
-        total_number_of_active_nodes = len(active_nodes_ids)
-        
-        node_index = active_nodes_ids.index(node.id)
-        ideal_finger_table = []
-        
-        # Compute ideal successors
-        for i in range(self.r):
-            successor_index = (node_index + pow(2, i)) % total_number_of_active_nodes
-            successor_node_id = active_nodes_ids[successor_index]
-            ideal_finger_table.append(successor_node_id)
-        
-        predecessor_index = (node_index - 1) % total_number_of_active_nodes
-        predecessor_node_id = active_nodes_ids[predecessor_index]
-        
-        
-        return ideal_finger_table, predecessor_node_id
-
-
     def get_network_state(self):
         network_state = {}
         for node in self.node_bank.values():
@@ -525,3 +535,8 @@ class ChordNetwork:
         for node in self.node_bank.values():
             if node.is_active:
                 print(node)
+
+
+if __name__ == "__main__":
+    network = ChordNetwork(m= 4, verbose=True)
+    # network.display_network()
