@@ -347,7 +347,7 @@ class ChordNetwork:
             # ask the node's successor for its predecessor
             successor_node = self.node_bank[node.finger_table['successor'][0]]
             x = successor_node.predecessor
-            print(f'x is: {x}')
+            # print(f'x is: {x}')
 
             interval = (node.id, successor_node.id)
             # print(f'interval is: {interval}')
@@ -401,80 +401,47 @@ class ChordNetwork:
 
     def join_network(self, node: Node): # find the immediate successor of node
         print(f'Joining node {node.id} to the network...')
-        if node.id not in self.node_bank:
-            # print('Node is not in node bank, adding it...')
-            self.node_bank[node.id] = node
-        else:
-            node = self.node_bank[node.id]
-        
-        node.predecessor = None
-        # Get all other active nodes excluding the joining node
-        active_nodes = [n for n in self.node_bank.values() if n.is_active and n.id != node.id]
-        n_prime = random.choice(active_nodes)
+        try:
+            if node.id not in self.node_bank:
+                # print('Node is not in node bank, adding it...')
+                self.node_bank[node.id] = node
+            else:
+                node = self.node_bank[node.id]
+            
+            node.predecessor = None
+            
+            # Get all other active nodes excluding the joining node
+            active_nodes = [n for n in self.node_bank.values() if n.is_active and n.id != node.id]
+            n_prime = random.choice(active_nodes)
 
 
-        successor_node = self.find_successor(n_prime, node.id)
-        
-      
-        node.set_active_status(True)
-        node.successor = successor_node.id
-        # print('Node that was added to the network is: ', node)
-        
-        print(f"Node {node.id} has joined the network.\n")
+            successor_node = self.find_successor(n_prime, node.id)
+            
+          
+            node.set_active_status(True)
+            node.successor = successor_node.id
+            # print('Node that was added to the network is: ', node)
 
-        # if self.verbose:
-        #     print(f"Node {node.id} has joined the network.\n")
-        #     print(f'Node is: {node}')
+            node.predecessor = self.find_predecessor(n_prime, node.id).id
+            
+            print(f'predecessor of {node.id} is: {node.predecessor}')
 
-    def leave_network_gracefully(self, node: Node):
+            print(f"Node {node.id} has joined the network.\n")
+        except Exception as e:
+            print(f"Error joining node {node.id} to network: {str(e)}")
+            pass
+
+    def leave_network(self, node: Node):
         node.set_active_status(False)
-        # Inform predecessor and successor
-        predecessor_node = self.node_bank.get(node.predecessor)
-        successor_node = self.node_bank.get(node.successor)
         
-        if predecessor_node and successor_node:
-            predecessor_node.successor = successor_node.id
-            successor_node.predecessor = predecessor_node.id
-            # Transfer keys to successor
-            successor_node.keys.extend(node.keys)
-            node.keys.clear()
-        
-        # Clear the node's finger table
+        # Clear the node's information
         node.predecessor = None
         node.successor = None
-        node.finger_table = []
+        node.finger_table = {}
         
         if self.verbose:
-            print(f"Node {node.id} has left the network gracefully.\n")
-        # Optionally, trigger stabilization on predecessor and successor
-        if predecessor_node and predecessor_node.is_active:
-            self.stabilize(predecessor_node)
-        if successor_node and successor_node.is_active:
-            self.stabilize(successor_node)
-
-    def node_failure(self, node: Node):
-        node.set_active_status(False)
-        # Inform predecessor and successor
-        predecessor_node = self.node_bank.get(node.predecessor)
-        successor_node = self.node_bank.get(node.successor)
-        
-        if predecessor_node and successor_node:
-            predecessor_node.successor = successor_node.id
-            successor_node.predecessor = predecessor_node.id
-            # Optionally, handle keys (e.g., mark as lost or transfer)
-        
-        # Clear the node's finger table
-        node.predecessor = None
-        node.successor = None
-        node.finger_table = []
-        
-        if self.verbose:
-            print(f"Node {node.id} has failed.\n")
-        # Optionally, trigger stabilization on predecessor and successor
-        if predecessor_node and predecessor_node.is_active:
-            self.stabilize(predecessor_node)
-        if successor_node and successor_node.is_active:
-            self.stabilize(successor_node)
+            print(f"Node {node.id} has left the network.\n")
+     
 
     def join_x_random_nodes(self, x: int):
         # Join x random inactive nodes to the network
@@ -664,34 +631,37 @@ if __name__ == "__main__":
     # print('Test find_successor function with the new network state')
     # print('--------------------------------')
     # map ={
-    #     0:1,
-    #     1:3,
-    #     2:3,    
-    #     3:6,
-    #     4:6,
-    #     5:6,
-    #     6:0,
-    #     7:0
+    #     # 0:1,
+    #     # 1:3,
+    #     # 2:3,    
+    #     # 3:6,
+    #     # 4:6,
+    #     # 5:6,
+    #     # 6:0,
+    #     # 7:0
     # }
     # for key, actual_successor_id in map.items():
     #     active_nodes = [n for n in network.node_bank.values() if n.is_active]
     #     active_nodes = active_nodes[:1]
     #     # print('active nodes are: ', [n.id for n in active_nodes])
     #     for start_node in active_nodes:
-    #         print('----------------------------------------start node is: ', start_node.id)
     #         successor = network.find_successor(start_node, key)
+    #         print(f'successor of key {key} is: {successor.id}')
     #         assert successor.id == actual_successor_id
 
 
 
     # fixing fingers test
-    print('--------------------------------')
-    print('fix fingers test')
-    print('--------------------------------')
+    # print('--------------------------------')
+    # print('fix fingers test')
+    # print('--------------------------------')
 
     # for i in range(10000):
     #     random_choice_of_active_node = random.choice(active_nodes)
     #     network.fix_fingers(random_choice_of_active_node)
-    network.fix_fingers(network.node_bank[0])
-    network.display_network()
+    # network.fix_fingers(network.node_bank[0])
+    # network.fix_fingers(network.node_bank[1])
+    # network.fix_fingers(network.node_bank[3])
+    # network.fix_fingers(network.node_bank[6])
+    # network.display_network()
 
