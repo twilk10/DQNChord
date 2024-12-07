@@ -93,7 +93,7 @@ class ChordNetwork:
                         break
                     
             # Set the successor of the node to the first entry in the finger table
-            node.successor = node.id
+            node.successor = node.finger_table['successor'][0]
 
 
         for key in self.keys:
@@ -123,7 +123,7 @@ class ChordNetwork:
         #     return self.node_bank[node.successor]
         
         n_prime = self.find_predecessor(node, id)
-        # print(f'+++++ received predecessor of {id} as: {predecessor.id}')
+        print(f'+++++ received predecessor of {id} as: {n_prime.id}')
       
         
         return self.node_bank[n_prime.finger_table['successor'][0]]
@@ -134,56 +134,32 @@ class ChordNetwork:
         of the desired identifier; the successor of that node must be the
         successor of the identifier
         '''
-        # print(f'\tfinding predecessor of id: {id} from node {node.id}...')
         n_prime = node
-        # print(f'successor of {id} is: {successor_node.id}')
-
-        # test_interval = (n_prime.id, n_prime.successor)
-        # print(f'\ttest interval is: {test_interval}')   
+    
         if self._is_in_left_closed_right_open_interval(id, n_prime.id, n_prime.successor, verbose = False):
-                # print(f'FINAL FUCKINGLY OUTER----------------------------------------------------------------')
-                return self.node_bank[n_prime.predecessor]
+                if id == n_prime.id:
+                    return self.node_bank[n_prime.predecessor]
+                return n_prime
         
 
         interval = (n_prime.id, n_prime.finger_table['successor'][0])
-        # print(f'\tinitial interval of node {n_prime.id} is: {interval}')
 
        
         while not self._is_in_left_open_right_closed_interval(id, interval[0], interval[1]):
-            # if id == n_prime.id:
-            #     # print(f'\t\t{id} is equal to {n_prime.id}')
-            #     return self.node_bank[n_prime.predecessor]
-            
+           
+            # check if the id is in nprime's interval   
             interval = (n_prime.id, n_prime.finger_table['successor'][0])
             if self._is_in_closed_interval(id, interval[0], interval[1], verbose = False):
-                # print(f'FINAL FUCKINGLY INNER----------------------------------------------------------------')
+                if id == n_prime.id:
+                    return self.node_bank[n_prime.predecessor]
                 return n_prime
 
-            # print('\tin predecessor finding loop')
+            
             returned_node = self.closest_preceding_node(n_prime, id)
-            # print(f'\tclosest preceding node (returned node) of id: {id} is: {returned_node.id}, from node {n_prime.id}')
-
-            # check if the returned node is the successor of the identifier
+          
             n_prime = returned_node
             interval = (returned_node.id, returned_node.successor)
-
-            
-            # print(f'\ttest interval is: {test_interval}')   
-            # if self._is_in_left_closed_right_open_interval(id, test_interval[0], test_interval[1], verbose = False):
-            #     print(f'\t\t{id} is in interval ({test_interval[0]}, {test_interval[1]})')
-            #     print(f'----------------------------------------------------------------RAHFJHDFKJHDKJFDKJDFK')
-            #     return returned_node
-          
-            
-            # n_prime = returned_node
-            # interval = (n_prime.id, n_prime.finger_table['successor'][0])
-            
-            # print(f'\tinterval of node {n_prime.id} is: {interval}')
-            # print(f'\tis id {id} in interval {interval}: {self._is_in_left_open_right_closed_interval(id, interval[0], interval[1], verbose = False)}')
-            # print('----------------------------------------------------------------')
-            
-         
-        # print(f'\n \t--------predecessor of {id} is: {n_prime.id}')
+  
         return n_prime
 
     def closest_preceding_node(self, node: Node, id: int) -> Node:# ask node to find closest preceding node of id
@@ -485,30 +461,6 @@ if __name__ == "__main__":
     nodes_to_activate = [0, 1, 3]   
     network = ChordNetwork(m=m, keys=keys, nodes_to_activate=nodes_to_activate, verbose=True)
     network.display_network()
-
-    # # check if successor of key 1 is 1
-    # successor1 = network.find_successor(network.node_bank[3], 1)
-    # assert successor1.id == 1
-
-    # check if successor of key 2 is 3
-    # must start from an active node
-
-
-    # print('--------------------------------')
-    # print('Test closest_preceding_node function')
-    # print('--------------------------------')
-  
-    # for identifier in range(2**m):
-    #     active_nodes = [n for n in network.node_bank.values() if n.is_active]
-    #     active_nodes = active_nodes[:1]
-    #     # print('active nodes are: ', [n.id for n in active_nodes])
-    #     for start_node in active_nodes:
-    #         print(f'finding closest preceding node for identifier {identifier} at node {start_node.id}')
-    #         closest_preceding_node = network.closest_preceding_node(start_node, identifier)
-    #         print(f'closest preceding node is: {closest_preceding_node.id}') 
-    #         print('----------------------------------------------------------------')   
-            # assert closest_preceding_node.id == actual_closest_preceding_node_id
-            
         
         
     # print('--------------------------------')
@@ -527,16 +479,17 @@ if __name__ == "__main__":
     # for identifier, actual_predecessor_id in predecessor_map.items():
     #     active_nodes = [n for n in network.node_bank.values() if n.is_active]
     #     for start_node in active_nodes:
+    #         print(f'finding predecessor of identifier {identifier} from node {start_node.id} ')
     #         predecessor = network.find_predecessor(start_node, identifier)
-    #         # print(f'predecessor of {identifier} is: {predecessor.id}')
-    #         # print('----------------------------------------------------------------')
+    #         print(f'predecessor of {identifier} is: {predecessor.id}')
+    #         print('----------------------------------------------------------------')
     #         assert predecessor.id == actual_predecessor_id
            
 
 
 
 
-
+    # finding the successor of an identifier
     # successor_map ={
     #     0:0,
     #     1:1,
@@ -561,17 +514,17 @@ if __name__ == "__main__":
 
    
 
-    print('--------------------------------')
-    print('Test joining a new node to the network')
-    print('--------------------------------')
+    # print('--------------------------------')
+    # print('Test joining a new node to the network')
+    # print('--------------------------------')
     new_node = Node(id=6, active_status=False)
     network.join_network(new_node)
     print('After joining new node, network state is:')
     network.display_network()
-    print('after joining new node, network state is:')
+
     # assert that the new node is in the network
-    assert network.node_bank[new_node.id].is_active
-    network.display_network()
+    # assert network.node_bank[new_node.id].is_active
+    # network.display_network()
 
     # print('stabilizing the network by stabilizing all nodes...')
     # active_nodes = [n for n in network.node_bank.values() if n.is_active]
@@ -600,24 +553,24 @@ if __name__ == "__main__":
     network.display_network()
 
     # assert that the network is stable
-    # print('asserting that the network is stable...')
-    # active_nodes = [n for n in network.node_bank.values() if n.is_active]
-    # for node in active_nodes:
-    #     if node.id == 0:
-    #         assert node.predecessor == 6
-    #         assert node.successor ==  1
+    print('asserting that the network is stable...')
+    active_nodes = [n for n in network.node_bank.values() if n.is_active]
+    for node in active_nodes:
+        if node.id == 0:
+            assert node.predecessor == 6
+            assert node.successor ==  1
 
-    #     if node.id == 1:
-    #         assert node.predecessor == 0
-    #         assert node.successor == 3
+        if node.id == 1:
+            assert node.predecessor == 0
+            assert node.successor == 3
 
-    #     if node.id == 3:
-    #         assert node.predecessor == 1
-    #         assert node.successor == 6
+        if node.id == 3:
+            assert node.predecessor == 1
+            assert node.successor == 6
 
-    #     if node.id == 6:
-    #         assert node.predecessor == 3
-    #         assert node.successor == 0
+        if node.id == 6:
+            assert node.predecessor == 3
+            assert node.successor == 0
 
     # network.display_network()  
 
@@ -627,14 +580,14 @@ if __name__ == "__main__":
     # print('Test find_successor function with the new network state')
     # print('--------------------------------')
     # map ={
-    #     # 0:1,
-    #     # 1:3,
-    #     # 2:3,    
-    #     # 3:6,
-    #     # 4:6,
-    #     # 5:6,
-    #     # 6:0,
-    #     # 7:0
+    #     0:1,
+    #     1:3,
+    #     2:3,    
+    #     3:6,
+    #     4:6,
+    #     5:6,
+    #     6:0,
+    #     7:0
     # }
     # for key, actual_successor_id in map.items():
     #     active_nodes = [n for n in network.node_bank.values() if n.is_active]
@@ -652,12 +605,12 @@ if __name__ == "__main__":
     # print('fix fingers test')
     # print('--------------------------------')
 
-    # for i in range(10000):
-    #     random_choice_of_active_node = random.choice(active_nodes)
-    #     network.fix_fingers(random_choice_of_active_node)
-    # network.fix_fingers(network.node_bank[0])
-    # network.fix_fingers(network.node_bank[1])
-    # network.fix_fingers(network.node_bank[3])
-    # network.fix_fingers(network.node_bank[6])
-    # network.display_network()
+    for i in range(10000):
+        random_choice_of_active_node = random.choice(active_nodes)
+        network.fix_fingers(random_choice_of_active_node)
+    network.fix_fingers(network.node_bank[0])
+    network.fix_fingers(network.node_bank[1])
+    network.fix_fingers(network.node_bank[3])
+    network.fix_fingers(network.node_bank[6])
+    network.display_network()
 
