@@ -293,25 +293,18 @@ class ChordNetwork:
     def _is_in_open_interval(self, x: int, left: int, right: int, verbose = False) -> bool:
         # left < x < right  
         # Handle circular interval
-        # print('\t\tin open interval')
         if left < right:
-            # print(f'\t\tleft is less than right')
-            # print(f'\t\t{x} is in interval ({left}, {right})')
             return left < x < right
         elif left > right:
-            # print(f'\t\tleft is greater than right')
             if x >= 0 and x < right:
-                # print(f'\t\t{x} is in interval ({left}, {right})')
                 return True
             if x > left and x <= pow(2, self.m):
                 # print(f'\t\t{x} is in interval ({left}, {right})')
                 return True
         else:
-            # print(f'\t\tleft is equal to right')
-            # print('\t\treturning False')    
             return False
         
-        # print(f'\t\t{x} is not in interval ({left}, {right})  end')
+        
         return False
     
 
@@ -605,12 +598,23 @@ if __name__ == "__main__":
     # print('fix fingers test')
     # print('--------------------------------')
 
-    for i in range(10000):
-        random_choice_of_active_node = random.choice(active_nodes)
-        network.fix_fingers(random_choice_of_active_node)
-    network.fix_fingers(network.node_bank[0])
-    network.fix_fingers(network.node_bank[1])
-    network.fix_fingers(network.node_bank[3])
-    network.fix_fingers(network.node_bank[6])
+    # for i in range(10000):
+    #     random_choice_of_active_node = random.choice(active_nodes)
+    #     network.fix_fingers(random_choice_of_active_node)
+    # network.fix_fingers(network.node_bank[0])
+    # network.fix_fingers(network.node_bank[1])
+    # network.fix_fingers(network.node_bank[3])
+    # network.fix_fingers(network.node_bank[6])
+    # network.display_network()
+
+
+
+
+    m = 3
+    keys = [1,2,6]
+    nodes_to_activate = [0, 1, 3]   
+    network = ChordNetwork(m=m, keys=keys, nodes_to_activate=nodes_to_activate, verbose=True)
+    print('------------------------------------------------------------------------------------------')
+    print('recreating the network...')
     network.display_network()
 
