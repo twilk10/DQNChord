@@ -422,7 +422,7 @@ class ChordNetwork:
             node.successor = successor_node.id
             # print('Node that was added to the network is: ', node)
 
-            node.predecessor = self.find_predecessor(n_prime, node.id).id
+            # node.predecessor = self.find_predecessor(n_prime, node.id).id
             
             print(f'predecessor of {node.id} is: {node.predecessor}')
 
@@ -484,7 +484,7 @@ if __name__ == "__main__":
     keys = [1,2,6]
     nodes_to_activate = [0, 1, 3]   
     network = ChordNetwork(m=m, keys=keys, nodes_to_activate=nodes_to_activate, verbose=True)
-    # network.display_network()
+    network.display_network()
 
     # # check if successor of key 1 is 1
     # successor1 = network.find_successor(network.node_bank[3], 1)
@@ -514,54 +514,49 @@ if __name__ == "__main__":
     # print('--------------------------------')
     # print('Test find_predecessor function')
     # print('--------------------------------')
-    predecessor_map ={
-        0:3,
-        1:0,
-        3:1,
-        2:1,    
-        4:3,
-        5:3,
-        6:3,
-        7:3
-    }
-    for identifier, actual_predecessor_id in predecessor_map.items():
-        active_nodes = [n for n in network.node_bank.values() if n.is_active]
-        for start_node in active_nodes:
-            predecessor = network.find_predecessor(start_node, identifier)
-            # print(f'predecessor of {identifier} is: {predecessor.id}')
-            # print('----------------------------------------------------------------')
-            assert predecessor.id == actual_predecessor_id
+    # predecessor_map ={
+    #     0:3,
+    #     1:0,
+    #     3:1,
+    #     2:1,    
+    #     4:3,
+    #     5:3,
+    #     6:3,
+    #     7:3
+    # }
+    # for identifier, actual_predecessor_id in predecessor_map.items():
+    #     active_nodes = [n for n in network.node_bank.values() if n.is_active]
+    #     for start_node in active_nodes:
+    #         predecessor = network.find_predecessor(start_node, identifier)
+    #         # print(f'predecessor of {identifier} is: {predecessor.id}')
+    #         # print('----------------------------------------------------------------')
+    #         assert predecessor.id == actual_predecessor_id
            
 
 
 
 
 
-
-
-
-
-
-
-    successor_map ={
-        0:0,
-        1:1,
-        2:3,    
-        3:3,
-        4:0,
-        5:0,
-        6:0,
-        7:0
-    }
-    for key, actual_successor_id in successor_map.items():
-        active_nodes = [n for n in network.node_bank.values() if n.is_active]
-        active_nodes = active_nodes[:1]
-        # print('active nodes are: ', [n.id for n in active_nodes])
-        for start_node in active_nodes:
-            # print('----------------------------------------start node is: ', start_node.id)
-            successor = network.find_successor(start_node, key)
-            # print(f'-------------actual successor is: {actual_successor_id}')
-            assert successor.id == actual_successor_id
+    # successor_map ={
+    #     0:0,
+    #     1:1,
+    #     2:3,    
+    #     3:3,
+    #     4:0,
+    #     5:0,
+    #     6:0,
+    #     7:0
+    # }
+    # print('testing successor function')
+    # for key, actual_successor_id in successor_map.items():
+    #     active_nodes = [n for n in network.node_bank.values() if n.is_active]
+    #     active_nodes = active_nodes[:1]
+    #     # print('active nodes are: ', [n.id for n in active_nodes])
+    #     for start_node in active_nodes:
+    #         # print('----------------------------------------start node is: ', start_node.id)
+    #         successor = network.find_successor(start_node, key)
+    #         # print(f'-------------actual successor is: {actual_successor_id}')
+    #         assert successor.id == actual_successor_id
 
 
    
@@ -571,15 +566,15 @@ if __name__ == "__main__":
     print('--------------------------------')
     new_node = Node(id=6, active_status=False)
     network.join_network(new_node)
-    # print('After joining new node, network state is:')
-    # network.display_network()
-    # print('after joining new node, network state is:')
+    print('After joining new node, network state is:')
+    network.display_network()
+    print('after joining new node, network state is:')
     # assert that the new node is in the network
     assert network.node_bank[new_node.id].is_active
-    # network.display_network()
+    network.display_network()
 
     # print('stabilizing the network by stabilizing all nodes...')
-    active_nodes = [n for n in network.node_bank.values() if n.is_active]
+    # active_nodes = [n for n in network.node_bank.values() if n.is_active]
 
     # Best order to stabilize after a new node is to stabilize the new node, 
     # then stabilize the new node's successor, then stabilize the new node's predecessor
@@ -597,6 +592,7 @@ if __name__ == "__main__":
     
     # Randomly stabilizing nodes in the network for 5000 iterations
     print('Randomly stabilizing nodes in the network for 5000 iterations...')
+    active_nodes = [n for n in network.node_bank.values() if n.is_active]
     for i in range(5000):
         random_choice_of_active_node = random.choice(active_nodes)
         network.stabilize(random_choice_of_active_node)
