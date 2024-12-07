@@ -619,28 +619,40 @@ class ChordNetwork:
     
 
     def stabilize(self, node: Node):  # Updates predecessor and successor pointers of a node
-        print(f'stabilizing node {node.id}...')
+        # print(f'stabilizing node {node.id}...')
         
         
         try:
             # ask the node's successor for its predecessor
             successor_node = self.node_bank[node.finger_table['successor'][0]]
-            x = successor_node.predecessor
-            # print(f'x is: {x}')
+            if not successor_node.is_active:
+                print(f'successor node {successor_node.id} is not active')
+                for i in range(self.m):
+                    successor_id = node.finger_table['successor'][i]
+                    successor_node = self.node_bank[successor_id]
+                    if successor_node.is_active:
+                        break   
+                
+                successor_node.predecessor = node.id
+                node.successor = successor_node.id
+                node.finger_table['successor'][0] = successor_node.id   
+            else:  
+                x = successor_node.predecessor
+                # print(f'x is: {x}') 
 
-            interval = (node.id, successor_node.id)
-            # print(f'interval is: {interval}')
-            if x is not None and self._is_in_open_interval(x, interval[0], interval[1]):
-                # print(f'{x} is in interval ({interval[0]}, {interval[1]})')     
-                node.successor = x
-                # if self.verbose:
-                    # print(f"Node {node.id}: Updated successor to {x}.")
+                interval = (node.id, successor_node.id)
+                print(f'interval is: {interval}')   
+                if x is not None and self._is_in_open_interval(x, interval[0], interval[1]):
+                    print('in if statement')
+                    node.successor = x
+                    node.finger_table['successor'][0] = x
 
             # print(f' {node.successor} notifies {node.id} that it is {node.id}\'s successor')
             self.notify(self.node_bank[node.successor], node)
+            
         except Exception as e:
-            # print(f"Error stabilizing node {node.id}: {str(e)}")
-            pass
+            print(f"Error stabilizing node {node.id}: {str(e)}")
+            
 
 
     def notify(self, node: Node, n_prime: Node): # ask node to update its predecessor to n_prime
@@ -656,27 +668,26 @@ class ChordNetwork:
             pass
 
     def fix_fingers(self, node: Node):  # Update the finger table of a node
-        print(f'fixing fingers for node {node.id}...')
-        finger_table = node.finger_table
-
-        # random index from 0 to len(finger_table['start']) - 1
-        for i in range(self.m):
-            start = (node.id + pow(2, i)) % pow(2, self.m)
-            finger_table['start'][i] = start
-            # successor = self.find_successor(node, start)
-            # finger_table['successor'][i] = successor.id
-            finger_table['interval'][i] = (start, (node.id + pow(2, i+1)) % pow(2, self.m))
+        # print(f'fixing fingers for node {node.id}...')
+      
+        if not node.finger_table:
+            node.finger_table = {
+                'start': [0]* self.m,
+                'interval': [0]*self.m,
+                'successor': [0]*self.m
+            }
+            for i in range(self.m):
+                start = (node.id + pow(2, i)) % pow(2, self.m)
+                node.finger_table['start'][i] = start
+                node.finger_table['interval'][i] = (start, (node.id + pow(2, i+1)) % pow(2, self.m))
 
         
         # fixing the successor nodes randomly to account for periods of instability 
-        # i = random.randint(1, len(finger_table['start']) - 1)
-        for i in range(1, len(finger_table['start'])):
-            print(f'fixing successor at index {i}') 
-            print(f'finding successor for identifier {finger_table["start"][i]}')
-            successor = self.find_successor(node, finger_table['start'][i])
-            print(f'found successor: {successor.id}')
-            print('----------------------------------------------------------------')
-            finger_table['successor'][i] = successor.id
+        finger_table = node.finger_table
+        i = random.randint(1, len(finger_table['start']) - 1)
+        successor = self.find_successor(node, finger_table['start'][i])
+        finger_table['successor'][i] = successor.id
+
 
     def manually_fix_fingers(self, node: Node):
         '''
@@ -717,17 +728,40 @@ class ChordNetwork:
             
             # Get all other active nodes excluding the joining node
             active_nodes = [n for n in self.node_bank.values() if n.is_active and n.id != node.id]
+            # choose a node to use to help init the joining node's finger table
             n_prime = random.choice(active_nodes)
+            print(f'n_prime that is chosen is: {n_prime.id}')  
 
-            successor_node = self.find_successor(n_prime, node.id)
-          
+            self.init_finger_table(node, n_prime) # n_prime is the node that is helping to init the finger table of the joining node
             node.set_active_status(True)
-            node.successor = successor_node.id
-            # print(f'predecessor of {node.id} is: {node.predecessor}')
-            # print(f"Node {node.id} has joined the network.\n")
+            
         except Exception as e:
             print(f"Error joining node {node.id} to network: {str(e)}")
-            pass
+    
+    def init_finger_table(self, joining_node: Node, n_prime: Node):
+        joining_node.finger_table = {
+            'start': [0]* self.m,
+            'interval': [0]*self.m,
+            'successor': [0]*self.m
+        }
+
+        for i in range(self.m):
+           start = (joining_node.id + pow(2, i)) % pow(2, self.m)
+           joining_node.finger_table['start'][i] = start
+           joining_node.finger_table['interval'][i] = (start, (joining_node.id + pow(2, i+1)) % pow(2, self.m)) 
+        
+
+        joining_node_successor = self.find_successor(n_prime, joining_node.finger_table['start'][0])
+        joining_node.finger_table['successor'][0] = joining_node_successor.id
+        joining_node.successor = joining_node_successor.id
+        joining_node.finger_table['successor'][0] = joining_node_successor.id   
+        joining_node.predecessor = joining_node_successor.predecessor
+
+        finger_table = joining_node.finger_table
+        for i in range(1,self.m):
+            successor = self.find_successor(n_prime, finger_table['start'][i])
+            finger_table['successor'][i] = successor.id    
+
 
     def leave_network(self, node: Node):
         node.set_active_status(False)
@@ -760,7 +794,7 @@ class ChordNetwork:
             # We cannot drop the Node with id 0
             while node_to_drop.id == 0:
                 node_to_drop = random.choice(active_nodes)
-            self.leave_network_gracefully(node_to_drop)
+            self.leave_network(node_to_drop)
 
     def get_network_state(self) -> Dict[int, List[Optional[int]]]:
         network_state = {}
@@ -779,7 +813,7 @@ class ChordNetwork:
 '''
 Tests:
 Can be used to test the correctness of the finger tables.
-Used to test the stabilization when a node joins or leaves the network.
+Used to test the stabilization and fix_fingers functions when a node joins or leaves the network.
 '''
 if __name__ == "__main__":
     # Creating a chord network based on the example in the paper: https://pdos.csail.mit.edu/papers/chord:sigcomm01/chord_sigcomm.pdf
@@ -790,7 +824,7 @@ if __name__ == "__main__":
         
         
     print('--------------------------------')
-    print('Test find_predecessor function')
+    print('TEST FINDING THE PREDECESSOR OF AN IDENTIFIER')
     predecessor_map ={
         0:3,
         1:0,
@@ -813,7 +847,7 @@ if __name__ == "__main__":
 
     # finding the successor of an identifier
     print('--------------------------------')
-    print('Test find_successor function')
+    print('TEST FINDING THE SUCCESSOR OF AN IDENTIFIER')
     successor_map ={
         0:0,
         1:1,
@@ -838,32 +872,11 @@ if __name__ == "__main__":
    
 
     print('--------------------------------')
-    print('Test joining a new node to the network')
+    print('TEST JOINING A NEW NODE TO THE NETWORK')
     new_node = Node(id=6, active_status=False)
     network.join_network(new_node)
     print('After joining new node, network state is:')
     network.display_network()
-
-    # assert that the new node is in the network
-    # assert network.node_bank[new_node.id].is_active
-    # network.display_network()
-
-    # print('stabilizing the network by stabilizing all nodes...')
-    # active_nodes = [n for n in network.node_bank.values() if n.is_active]
-
-    # Best order to stabilize after a new node is to stabilize the new node, 
-    # then stabilize the new node's successor, then stabilize the new node's predecessor
-    # Then stabilize the new node;s sucessor's predecessor.
-    # In this case, we stabilize 6, then 0, then 3
-
-    # # stabilize node 6
-    # print('before stabilizing node 6, 0, and 3, network state is:')
-    # # network.display_network()
-    # network.stabilize(network.node_bank[6])
-    # network.stabilize(network.node_bank[0])
-    # network.stabilize(network.node_bank[3]) 
-    # print('after stabilizing node 6, 0, and 3, network state is:')
-    # network.display_network()
     
     # Randomly stabilizing nodes in the network for 5000 iterations
     print('Randomly stabilizing nodes in the network for 5000 iterations...')
@@ -871,6 +884,8 @@ if __name__ == "__main__":
     for i in range(5000):
         random_choice_of_active_node = random.choice(active_nodes)
         network.stabilize(random_choice_of_active_node)
+    
+    network.display_network()
 
     # assert that the network is stable
     print('asserting that the network is stable (Pointers only since the finger tables are not fixed by the stabilizing function)...')
@@ -879,26 +894,33 @@ if __name__ == "__main__":
         if node.id == 0:
             assert node.predecessor == 6
             assert node.successor ==  1
+            assert node.finger_table['successor'][0] == 1       
 
         if node.id == 1:
             assert node.predecessor == 0
             assert node.successor == 3
+            assert node.finger_table['successor'][0] == 3
 
         if node.id == 3:
             assert node.predecessor == 1
             assert node.successor == 6
+            assert node.finger_table['successor'][0] == 6
 
         if node.id == 6:
             assert node.predecessor == 3
             assert node.successor == 0
+            assert node.finger_table['successor'][0] == 0
 
     network.display_network()
-    print('Network is stable!')
-    
+    print('All pointers updated, Network is stable!')
+
+    # fixing fingers test
     print('--------------------------------')
-    print('Testing manually fixing fingers...')
-    for node in network.node_bank.values():
-        network.manually_fix_fingers(node)
+    print('FIXING FINGERS TEST')
+
+    for i in range(10000):
+        random_choice_of_active_node = random.choice(active_nodes)
+        network.fix_fingers(random_choice_of_active_node)
 
     print('Asserrting that all fingers are fixed...')   
     active_nodes = [n for n in network.node_bank.values() if n.is_active]
@@ -942,7 +964,7 @@ if __name__ == "__main__":
 
 
     print('--------------------------------')
-    print('Test find_predecessor function with the new network state')
+    print('TEST FINDING THE PREDECESSOR OF AN IDENTIFIER WITH THE NEW NETWORK STATE')
     predecessor_map ={
         0:6,
         1:0,
@@ -953,16 +975,15 @@ if __name__ == "__main__":
         6:3,
         7:6
     }  
-    
     for key, actual_predecessor_id in predecessor_map.items():
         active_nodes = [n for n in network.node_bank.values() if n.is_active]
         for start_node in active_nodes:
             predecessor = network.find_predecessor(start_node, key)
             assert predecessor.id == actual_predecessor_id
-    print('All predecessors are correct!')  
+    print('find_predecessor works fine in the new network state!')  
 
     print('--------------------------------')
-    print('Test find_successor function with the new network state')
+    print('TEST FINDING THE SUCCESSOR OF AN IDENTIFIER WITH THE NEW NETWORK STATE')
     successor_map ={
         0:0,
         1:1,
@@ -981,22 +1002,44 @@ if __name__ == "__main__":
             successor = network.find_successor(start_node, key)
             # print(f'successor of key {key} is: {successor.id}')
             assert successor.id == actual_successor_id
-    print('All successors are correct!')
+    print('All successors are correct in the new network state!')
 
-
-    # fixing fingers test
-    # print('--------------------------------')
-    # print('fix fingers test')
-    # print('--------------------------------')
-
-    # for i in range(10000):
-    #     random_choice_of_active_node = random.choice(active_nodes)
-    #     network.fix_fingers(random_choice_of_active_node)
-    # network.fix_fingers(network.node_bank[0])
-    # network.fix_fingers(network.node_bank[1])
-    # network.fix_fingers(network.node_bank[3])
-    # network.fix_fingers(network.node_bank[6])
+  
+    print('--------------------------------')
+    print('TEST WHEN A NODE LEAVES THE NETWORK...')
+    id_of_node_to_leave = 1
+    active_nodes = [n for n in network.node_bank.values() if n.is_active]   
+    initial_size_of_network = len(active_nodes)    
+    network.leave_network(network.node_bank[id_of_node_to_leave])
+    assert network.node_bank[id_of_node_to_leave].is_active == False
+    active_nodes = [n for n in network.node_bank.values() if n.is_active]       
+    assert len(active_nodes) == initial_size_of_network - 1
     # network.display_network()
 
+    print('Stabilizing the network after a node leaves...')
+    network.stabilize(network.node_bank[0])
+    # active_nodes = [n for n in network.node_bank.values() if n.is_active]
+    # for i in range(5000):
+    #     random_choice_of_active_node = random.choice(active_nodes)
+    #     network.stabilize(random_choice_of_active_node)
+
+    network.display_network() 
+    # for node in active_nodes:
+    #     if node.id == 0:
+    #         assert node.predecessor == 6
+    #         assert node.successor ==  0
+    #         assert node.finger_table['successor'][0] == 0   
+
+    #     if node.id == 3:
+    #         assert node.predecessor == 1
+    #         assert node.successor == 6
+    #         assert node.finger_table['successor'][0] == 6
+
+    #     if node.id == 6:
+    #         assert node.predecessor == 3
+    #         assert node.successor == 0
+    #         assert node.finger_table['successor'][0] == 0
+
+    # network.display_network() 
 
 
