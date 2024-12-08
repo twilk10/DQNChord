@@ -308,17 +308,29 @@ class ChordWorldEnv(gym.Env):
                 self.network.drop_x_random_nodes(x=1)
 
         # Other nodes stabilize/fix fingers at intervals
-        for node_id, node in self.network.node_bank.items():
-            if node_id == self.agent_id:
-                continue  # Agent handled separately
-            if node.is_active:
-                # Non-agent nodes stabilize every stabilize_interval steps
-                if self.current_step % self.stabalize_interval == 0:
-                    self.network.stabilize(node)
-                # Non-agent nodes fix_fingers every fix_fingers_interval steps
-                if self.current_step % self.fix_fingers_interval == 0:
-                    self.network.fix_fingers(node)
+        for i in range(self.network.m * 3):
+             active_nodes = [node for node in self.network.node_bank.values() if node.is_active]
+             node = random.choice(active_nodes)
+             if node.id == self.agent_id:
+                    continue  # Agent handled separately
+             if node.is_active:
+                    # Non-agent nodes stabilize every stabilize_interval steps
+                    if self.current_step % self.stabalize_interval == 0:
+                        self.network.stabilize(node)
+                    # Non-agent nodes fix_fingers every fix_fingers_interval steps
+                    # if self.current_step % self.fix_fingers_interval == 0:
+                    #     self.network.fix_fingers(node)
 
+        for node_id, node in self.network.node_bank.items():
+                if node_id == self.agent_id:
+                    continue  # Agent handled separately
+                if node.is_active:
+                    # # Non-agent nodes stabilize every stabilize_interval steps
+                    # if self.current_step % self.stabalize_interval == 0:
+                    #     self.network.stabilize(node)
+                    # Non-agent nodes fix_fingers every fix_fingers_interval steps
+                    if self.current_step % self.fix_fingers_interval == 0:
+                        self.network.fix_fingers(node)
 
     # def _initialize_network(self):
     #     ''' 
@@ -438,6 +450,7 @@ class Node:
                  predecessor: Optional[int] = None, 
                  successor: Optional[int] = None, 
                  finger_table: Optional[List[int]] = None, 
+                 k: int = 3,
                  m: int = 0):
         self.is_active = active_status
         self.id = id
@@ -452,6 +465,8 @@ class Node:
         else:
             self.finger_table = finger_table
 
+        self.successor_list: List[int] = [successor] + [0] * (k - 1)    
+
     def set_active_status(self, new_status: bool):
         self.is_active = new_status
 
@@ -460,12 +475,14 @@ class Node:
                 f"\t Active Status: {self.is_active}\n"
                 f"\t Predecessor: {self.predecessor}\n"
                 f"\t Successor: {self.successor}\n"
-                f"\t Finger Table: {self.finger_table}\n")
+                f"\t Finger Table: {self.finger_table}\n"
+                f"\t Successor List: {self.successor_list}\n")
 
 # ChordNetwork Class
 class ChordNetwork:
     def __init__(self, m=4, nodes_to_activate: List[int] = [], verbose=False, seed=42):
         self.m = m
+        self.k = 3
         self.max_network_size = 2 ** self.m
         self.n_nodes_to_activate = self.max_network_size // 2
         self.verbose = verbose
@@ -518,7 +535,7 @@ class ChordNetwork:
        # get the identifier successor id map
         identifier_successor_id_map = {}
         sorted_node_ids = sorted(self.node_bank.keys())
-        print('my sorted node ids are: ', sorted_node_ids)
+        # print('my sorted node ids are: ', sorted_node_ids)
         for index, identifier in enumerate(sorted_node_ids):
             idx = index
             while not self.node_bank[sorted_node_ids[idx]].is_active:
@@ -532,7 +549,7 @@ class ChordNetwork:
             finger_table = node.finger_table
             for i in range(self.m):
                 start = finger_table['start'][i]
-                print(f'start is: {start}')
+                # print(f'start is: {start}')
                 finger_table['successor'][i] = identifier_successor_id_map[start]
 
 
@@ -554,65 +571,158 @@ class ChordNetwork:
         successor_index = (node_index + 1) % total_number_of_active_nodes
         successor_node_id = active_nodes_ids[successor_index]
         node.successor = successor_node_id
+
+        # set the successor list
+                # set the successor list
+        for idx, node_id in enumerate(active_nodes_ids):
+            current_node = self.node_bank[node_id]
+            for i in range(self.m):
+                next_successor_index = (idx + pow(2, i)) % total_number_of_active_nodes
+                next_successor_node_id = active_nodes_ids[next_successor_index]
+                if next_successor_node_id == current_node.id:
+                    continue
+                current_node.successor_list[i] = next_successor_node_id 
+           
    
 
     def find_successor(self, node: Node, id: int) -> Node: # ask node to find successor of id
         n_prime = self.find_predecessor(node, id)
         # print(f'+++++ received predecessor of {id} as: {n_prime.id}')
       
+        if n_prime is None:
+            return None
         
         return self.node_bank[n_prime.finger_table['successor'][0]]
 
-    def find_predecessor(self, node: Node, id: int) -> Node: # ask node to find predecessor of id
-        '''
-        works by finding the immediate predecessor node
-        of the desired identifier; the successor of that node must be the
-        successor of the identifier
-        '''
-        n_prime = node
+    # def find_predecessor(self, node: Node, id: int) -> Node: # ask node to find predecessor of id
+    #     '''
+    #     works by finding the immediate predecessor node
+    #     of the desired identifier; the successor of that node must be the
+    #     successor of the identifier
+    #     '''
+    #     n_prime = node
     
-        if self._is_in_left_closed_right_open_interval(id, n_prime.id, n_prime.successor, verbose = False):
-                if id == n_prime.id:
-                    return self.node_bank[n_prime.predecessor]
-                return n_prime
+    #     if self._is_in_left_closed_right_open_interval(id, n_prime.id, n_prime.successor, verbose = False):
+    #             if id == n_prime.id:
+    #                 return self.node_bank[n_prime.predecessor]
+    #             return n_prime
         
 
-        interval = (n_prime.id, n_prime.finger_table['successor'][0])
-        print(f'INTERVAL[0]: {interval[0]}, INTERVAL[1]: {interval[1]}, n_prime_id: {n_prime.id}, n_prime_succ: {n_prime.finger_table['successor'][0]}')
-        while not self._is_in_left_open_right_closed_interval(id, interval[0], interval[1]):
+    #     interval = (n_prime.id, n_prime.finger_table['successor'][0])
+    #     # print(f'INTERVAL[0]: {interval[0]}, INTERVAL[1]: {interval[1]}, n_prime_id: {n_prime.id}, n_prime_succ: {n_prime.finger_table['successor'][0]}')
+    #     while not self._is_in_left_open_right_closed_interval(id, interval[0], interval[1]):
            
-            # check if the id is in nprime's interval   
-            interval = (n_prime.id, n_prime.finger_table['successor'][0])
-            print(f'INTERVAL[0]: {interval[0]}, INTERVAL[1]: {interval[1]}, n_prime_id: {n_prime.id}, n_prime_succ: {n_prime.finger_table['successor'][0]}')
-            if self._is_in_closed_interval(id, interval[0], interval[1], verbose = False):
-                if id == n_prime.id:
-                    return self.node_bank[n_prime.predecessor]
-                return n_prime
+    #         # check if the id is in nprime's interval   
+    #         interval = (n_prime.id, n_prime.finger_table['successor'][0])
+    #         # print(f'INTERVAL[0]: {interval[0]}, INTERVAL[1]: {interval[1]}, n_prime_id: {n_prime.id}, n_prime_succ: {n_prime.finger_table['successor'][0]}')
+    #         if self._is_in_closed_interval(id, interval[0], interval[1], verbose = False):
+    #             if id == n_prime.id:
+    #                 return self.node_bank[n_prime.predecessor]
+    #             return n_prime
             
-            returned_node = self.closest_preceding_node(n_prime, id)
-            print(f'n_prim: {n_prime}, id: {id}')
-            n_prime = returned_node
-            interval = (returned_node.id, returned_node.successor)
-            print(f'returned_node: {returned_node},interval: {interval}')
+    #         returned_node = self.closest_preceding_node(n_prime, id)
+    #         # print(f'n_prim: {n_prime}, id: {id}')
+    #         n_prime = returned_node
+    #         interval = (returned_node.id, returned_node.successor)
+    #         #   print(f'returned_node: {returned_node},interval: {interval}')
 
-        return n_prime
+    #     return n_prime
+    
+    def find_predecessor(self, node: Node, id: int) -> Node:
+        try:
+            # print(f'+++++ finding predecessor of {id}, using node: {node.id}')
+            n_prime = node
 
-    def closest_preceding_node(self, node: Node, id: int) -> Node:# ask node to find closest preceding node of id
+            counter = 0
+            while not self._is_in_left_open_right_closed_interval(id, n_prime.id, n_prime.successor, verbose=False):
+                returned_node = self.closest_preceding_node(n_prime, id)
+                if returned_node.id == n_prime.id:
+                    # Prevent infinite loop if no closer node is found
+                    break
+                n_prime = returned_node
+
+                # print('closest preceding node of ', id, '  is: ', n_prime)
+                # print(f'node which initialized the search is: {node.id}, it has status: {node.is_active}')
+                # self.display_network()
+                # if self._is_in_left_closed_right_open_interval(id, n_prime.id, n_prime.successor, verbose=False):
+                #     print(f'+++++ found (IN LOOP) predecessor of {id} as\n: {n_prime}')  
+
+
+                #     if self.node_bank[id].is_active or id == n_prime.id:
+                #         return self.node_bank[n_prime.predecessor]
+                #     else:
+                #         return n_prime
+                counter += 1
+                if counter > self.m + 1:
+                    raise Exception('infinite loop')
+                        
+                    
+            # print(f'+++++ found predecessor of {id} as\n: {n_prime}')  
+            return self.node_bank[n_prime.id]
+        except Exception as e:
+            print(f"Error finding predecessor for id {id}: {str(e)}")
+            return None
+
+    def closest_preceding_node(self, node: Node, id: int) -> Node:
         for i in reversed(range(self.m)):
-        
             x = node.finger_table['successor'][i]
-            if self._is_in_open_interval(x, node.id, id,verbose = False):
-                return self.node_bank[x]
-        
-        max_closest_preceding_node_id = node.id
-        for i in reversed(range(self.m)):
-            if(node.finger_table['successor'][i] == node.id):
-                continue    
-            # choose the largest of the successors whose value is less than id
-            if id > node.finger_table['successor'][i]:
-                max_closest_preceding_node_id = max(max_closest_preceding_node_id, node.finger_table['successor'][i])
+            if self._is_in_open_interval(x, node.id, id, verbose=False) and self.node_bank[x].is_active:
+                if self.node_bank[x].is_active:
+                    return self.node_bank[x]
+                else:
+                     # If x is inactive, refer to the successor list
+                    for backup_successor_id in node.successor_list:
+                        if self._is_in_open_interval(backup_successor_id, node.id, id, verbose=False):
+                            if self.node_bank[backup_successor_id].is_active:
+                                print(f'-------------SUCCESSOR LIST BACKUP FOR X: {backup_successor_id}')
+                                return self.node_bank[backup_successor_id]
+                    # self.display_network()
+                    # print(f'id being searched for is: {id}, using Node: {node.id}')
+                    # raise Exception('closest preceding node is not active')
+                
+        # print(f'+++++ no preceding active node found for {id}, returning node itself: {node.id}')
+        return node  # If no preceding active node is found, return the node itself
 
-        return self.node_bank[max_closest_preceding_node_id]
+    # def closest_preceding_node(self, node: Node, id: int) -> Node:# ask node to find closest preceding node of id
+    #     # print('self.m is: ', self.m)
+    #     for i in reversed(range(self.m)):
+    #         # print('iiiiiiii is: ', i)
+        
+    #         x = node.finger_table['successor'][i]
+    #         if self._is_in_open_interval(x, node.id, id,verbose = False):
+    #             print(f'-------------INTERVAL IS: {node.id, id},,X IS: {x}')
+    #             if self.node_bank[x].is_active:
+    #                 return self.node_bank[x]
+    #             else:
+    #                 # max_closest_preceding_node_id = node.id
+    #                 # for i in reversed(range(self.m)):
+    #                 #     if(node.finger_table['successor'][i] == node.id) or (node.finger_table['successor'][i] == x):
+    #                 #         continue    
+    #                 #     # choose the largest of the successors whose value is less than id
+    #                 #     if id > node.finger_table['successor'][i]:
+    #                 #         max_closest_preceding_node_id = max(max_closest_preceding_node_id, node.finger_table['successor'][i])
+
+    #                 # print(f'------------NEW ELSE-----------------------id being searched for is: {id}')
+    #                 # print(f'------------NEW ELSE-----------------------max_closest_preceding_node_id is: {max_closest_preceding_node_id}') 
+    #                 # return self.node_bank[max_closest_preceding_node_id]
+                    
+    #                 self.display_network()
+    #                 # succ = self.find_successor(node, id)
+    #                 raise Exception('here')
+    #                 print(f'-------------------------GOT SUCCESSOR AS:\n {succ}')
+    #                 return succ
+
+    #     max_closest_preceding_node_id = node.id
+    #     for i in reversed(range(self.m)):
+            
+    #         if(node.finger_table['successor'][i] == node.id):
+    #             continue    
+    #         # choose the largest of the successors whose value is less than id
+    #         if id > node.finger_table['successor'][i]:
+    #             max_closest_preceding_node_id = max(max_closest_preceding_node_id, node.finger_table['successor'][i])
+
+    #     print(f'-----------------------------------max_closest_preceding_node_id is: {max_closest_preceding_node_id}') 
+    #     return self.node_bank[max_closest_preceding_node_id]
 
 
 
@@ -651,7 +761,7 @@ class ChordNetwork:
         # left < x <= right  
         # Handle circular interval
         # print('\t\tin left open right closed interval')
-        print(f'LEFT: {left}, RIGHT: {right}')
+        # print(f'LEFT: {left}, RIGHT: {right}')
         if left < right:
             # print(f'\t\tleft is less than right')
             # print(f'\t\t{x} is in interval ({left}, {right})')
@@ -724,41 +834,79 @@ class ChordNetwork:
         return False
     
 
-    def stabilize(self, node: Node):  # Updates predecessor and successor pointers of a node
-        # print(f'stabilizing node {node.id}...')
+    # def stabilize(self, node: Node):  # Updates predecessor and successor pointers of a node
+    #     print(f'stabilizing node {node.id}...')
         
+        
+    #     try:
+    #         # ask the node's successor for its predecessor
+    #         successor_node = self.node_bank[node.successor_list[0]]
+    #         if not successor_node.is_active:
+    #             print(f'successor node {successor_node.id} is not active')
+    #             for i in range(self.m):
+    #                 successor_id = node.successor_list[i]
+    #                 successor_node = self.node_bank[successor_id]
+    #                 if successor_node.is_active:
+    #                     break   
+                
+    #             successor_node.predecessor = node.id
+    #             node.successor = successor_node.id
+    #             node.finger_table['successor'][0] = successor_node.id   
+    #         else:  
+    #             print(f'successor node {successor_node.id} is  active')
+    #             x = successor_node.predecessor
+    #             # print(f'x is: {x}') 
+
+    #             interval = (node.id, successor_node.id)
+    #             print(f'interval is: {interval}')   
+    #             if x is not None and self._is_in_open_interval(x, interval[0], interval[1]):
+    #                 print('in if statement')
+    #                 node.successor = x
+    #                 node.finger_table['successor'][0] = x
+
+    #         # print(f' {node.successor} notifies {node.id} that it is {node.id}\'s successor')
+    #         self.notify(self.node_bank[node.successor], node)
+            
+    #     except Exception as e:
+    #         print(f"Error stabilizing node {node.id}: {str(e)}")
+            
+    def stabilize(self, node: Node):
+        print(f'Stabilizing node {node.id}...')
         
         try:
-            # ask the node's successor for its predecessor
-            successor_node = self.node_bank[node.finger_table['successor'][0]]
-            if not successor_node.is_active:
-                print(f'successor node {successor_node.id} is not active')
-                for i in range(self.m):
-                    successor_id = node.finger_table['successor'][i]
-                    successor_node = self.node_bank[successor_id]
-                    if successor_node.is_active:
-                        break   
-                
-                successor_node.predecessor = node.id
-                node.successor = successor_node.id
-                node.finger_table['successor'][0] = successor_node.id   
-            else:  
-                x = successor_node.predecessor
-                # print(f'x is: {x}') 
-
-                interval = (node.id, successor_node.id)
-                print(f'interval is: {interval}')   
-                if x is not None and self._is_in_open_interval(x, interval[0], interval[1]):
-                    print('in if statement')
+            # Primary successor
+            primary_successor_id = node.successor
+            primary_successor_node = self.node_bank.get(primary_successor_id)
+            
+            if not primary_successor_node or not primary_successor_node.is_active:
+                print(f'Primary successor {primary_successor_id} is not active.')
+                # Find the next active successor from the successor list
+                for i in range(len(node.successor_list)):
+                    backup_successor_id = node.successor_list[i]
+                    backup_successor_node = self.node_bank.get(backup_successor_id)
+                    if backup_successor_node and backup_successor_node.is_active:
+                        node.successor = backup_successor_id
+                        node.finger_table['successor'][0] = backup_successor_id
+                        print(f'Updated primary successor to backup successor {backup_successor_id}.')
+                        self.notify(backup_successor_node, node)
+                        break
+                else:
+                    print('No active successors found in the successor list.')
+            else:
+                # Ask the primary successor for its predecessor
+                x = primary_successor_node.predecessor
+                if x is not None and self._is_in_open_interval(x, node.id, primary_successor_id):
+                    # Update primary successor to x
+                    print(f'Found closer successor {x} for node {node.id}. Updating successor.')
                     node.successor = x
                     node.finger_table['successor'][0] = x
-
-            # print(f' {node.successor} notifies {node.id} that it is {node.id}\'s successor')
-            self.notify(self.node_bank[node.successor], node)
-            
+                    self.notify(self.node_bank[x], node)
+                
+                # Update successor list
+                self.update_successor_list(node)
+                
         except Exception as e:
             print(f"Error stabilizing node {node.id}: {str(e)}")
-            
 
 
     def notify(self, node: Node, n_prime: Node): # ask node to update its predecessor to n_prime
@@ -772,6 +920,18 @@ class ChordNetwork:
         else:
             # print(f'\t\tDid not update predecessor of {node.id} to {n_prime.id}')
             pass
+
+        self.update_successor_list(node)
+
+    def update_successor_list(self, node: Node):
+        sorted_node_ids = sorted([n.id for n in self.node_bank.values() if n.is_active])
+        index = sorted_node_ids.index(node.id)
+        # Update the successor list based on the current ring
+
+        for i in range(1, self.k + 1):
+            successor_id = sorted_node_ids[(index + i) % len(sorted_node_ids)]
+            node.successor_list[i - 1] = successor_id
+        print(f"Node {node.id} successor list updated to: {node.successor_list}")
 
     def fix_fingers(self, node: Node):  # Update the finger table of a node
         # print(f'fixing fingers for node {node.id}...')
@@ -790,10 +950,16 @@ class ChordNetwork:
         
         # fixing the successor nodes randomly to account for periods of instability 
         finger_table = node.finger_table
-        i = random.randint(1, len(finger_table['start']) - 1)
-        successor = self.find_successor(node, finger_table['start'][i])
-        print(f'successor: {successor}')
-        finger_table['successor'][i] = successor.id
+        # i = random.randint(1, len(finger_table['start']) - 1)
+        for i in range(self.m):
+            start = finger_table['start'][i]
+
+            successor = self.find_successor(node, start)
+            if successor is None:
+                self.manually_fix_fingers(node)
+                break
+            # print(f'successor: {successor}')
+            finger_table['successor'][i] = successor.id
 
 
     def manually_fix_fingers(self, node: Node):
@@ -836,14 +1002,33 @@ class ChordNetwork:
             # Get all other active nodes excluding the joining node
             active_nodes = [n for n in self.node_bank.values() if n.is_active and n.id != node.id]
             # choose a node to use to help init the joining node's finger table
+
+            if not active_nodes:
+                # If no other active nodes, node points to itself
+                node.successor = node.id
+                node.finger_table['successor'][0] = node.id
+                node.predecessor = node.id
+                node.successor_list = [node.id] * self.k
+                print(f"Node {node.id} is the only active node in the network.")
+                return
+            
             n_prime = random.choice(active_nodes)
             print(f'n_prime that is chosen is: {n_prime.id}')  
 
-            self.init_finger_table(node, n_prime) # n_prime is the node that is helping to init the finger table of the joining node
             node.set_active_status(True)
+
+            self.init_finger_table(node, n_prime) # n_prime is the node that is helping to init the finger table of the joining node
+            
+            # Populate the successor list for the joining node
+            self.populate_successor_list(node)
+            
+            # Update predecessor and successor nodes' successor lists
+            successor_node = self.node_bank[node.successor]
+            self.notify(successor_node, node)
             
         except Exception as e:
             print(f"Error joining node {node.id} to network: {str(e)}")
+            node.set_active_status(False)
     
     def init_finger_table(self, joining_node: Node, n_prime: Node):
         joining_node.finger_table = {
@@ -861,7 +1046,7 @@ class ChordNetwork:
         joining_node_successor = self.find_successor(n_prime, joining_node.finger_table['start'][0])
         joining_node.finger_table['successor'][0] = joining_node_successor.id
         joining_node.successor = joining_node_successor.id
-        joining_node.finger_table['successor'][0] = joining_node_successor.id   
+        # joining_node.finger_table['successor'][0] = joining_node_successor.id   
         joining_node.predecessor = joining_node_successor.predecessor
 
         finger_table = joining_node.finger_table
@@ -869,6 +1054,16 @@ class ChordNetwork:
             successor = self.find_successor(n_prime, finger_table['start'][i])
             finger_table['successor'][i] = successor.id    
 
+        # Populate the successor list
+        self.populate_successor_list(joining_node)
+
+    def populate_successor_list(self, node: Node):
+        sorted_node_ids = sorted([n.id for n in self.node_bank.values() if n.is_active])
+        index = sorted_node_ids.index(node.id)
+        # Populate the successor list with the next k active nodes
+        for i in range(1, self.k + 1):
+            successor_id = sorted_node_ids[(index + i) % len(sorted_node_ids)]
+            node.successor_list[i - 1] = successor_id
 
     def leave_network(self, node: Node):
         node.set_active_status(False)
@@ -878,8 +1073,7 @@ class ChordNetwork:
         node.successor = None
         node.finger_table = {}
         
-        if self.verbose:
-            print(f"Node {node.id} has left the network.\n")
+        print(f"Node {node.id} has left the network, it status is now: {node.is_active}.\n")
      
 
     def join_x_random_nodes(self, x: int):
