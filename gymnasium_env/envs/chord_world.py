@@ -364,15 +364,20 @@ class ChordNetwork:
         node.successor = successor_node_id
 
         # set the successor list
-                # set the successor list
+        successor_list = [0] * self.k
         for idx, node_id in enumerate(active_nodes_ids):
             current_node = self.node_bank[node_id]
-            for i in range(self.m):
+            print(f'f here is the node\n {current_node}')
+            for i in range(self.k):
                 next_successor_index = (idx + pow(2, i)) % total_number_of_active_nodes
                 next_successor_node_id = active_nodes_ids[next_successor_index]
                 if next_successor_node_id == current_node.id:
                     continue
-                current_node.successor_list[i] = next_successor_node_id 
+                # print('current node id is: ', current_node)
+                print(f'current node {current_node.id} successor list is: {current_node.successor_list}')
+                
+                successor_list[i] = next_successor_node_id 
+            current_node.successor_list = successor_list
            
    
 
@@ -698,6 +703,12 @@ class ChordNetwork:
                 
         except Exception as e:
             print(f"Error stabilizing node {node.id}: {str(e)}")
+            # if node.is_active:  
+            #     print(f'Manually stabilizing node {node.id}...')
+            #     # self.manually_assign_successors_and_predecessors(node)
+            # else:
+            #     print('Node is not active, skipping stabilization.')
+                    
 
 
     def notify(self, node: Node, n_prime: Node): # ask node to update its predecessor to n_prime
@@ -712,17 +723,25 @@ class ChordNetwork:
             # print(f'\t\tDid not update predecessor of {node.id} to {n_prime.id}')
             pass
 
-        self.update_successor_list(node)
+        try:
+            self.update_successor_list(node)
+        except Exception as e:
+            print(f"Error updating successor list for node {node.id}: {str(e)}")
+            # self.manually_assign_successors_and_predecessors(node)
 
     def update_successor_list(self, node: Node):
-        sorted_node_ids = sorted([n.id for n in self.node_bank.values() if n.is_active])
-        index = sorted_node_ids.index(node.id)
-        # Update the successor list based on the current ring
+        active_node_ids = sorted([n.id for n in self.node_bank.values() if n.is_active])
+        if node.id in active_node_ids:
+            index = active_node_ids.index(node.id)
 
-        for i in range(1, self.k + 1):
-            successor_id = sorted_node_ids[(index + i) % len(sorted_node_ids)]
-            node.successor_list[i - 1] = successor_id
-        # print(f"Node {node.id} successor list updated to: {node.successor_list}")
+            for i in range(1, self.k + 1):
+                successor_id = active_node_ids[(index + i) % len(active_node_ids)]
+                node.successor_list[i - 1] = successor_id
+                print(f"Node {node.id} successor list updated to: {node.successor_list}")
+        else:
+            # Node is inactive; clear its successor list
+            node.successor_list = [0] * self.k
+            print(f"Node {node.id} is inactive. Successor list has been cleared.")
 
     def fix_fingers(self, node: Node):  # Update the finger table of a node
         # print(f'fixing fingers for node {node.id}...')
