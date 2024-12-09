@@ -22,10 +22,10 @@ class ChordWorldEnv(gym.Env):
     metadata = {'render.modes': ['human']}
     
     def __init__(self, 
-                 max_steps = 100, 
+                 max_steps = 300, 
                  seed = 42, 
-                 stabalize_interval = 10, 
-                 fix_fingers_interval = 15, 
+                 stabalize_interval = 5, 
+                 fix_fingers_interval = 10, 
                  agent_id = 0, 
                  churn_join_prob = 0.2, 
                  churn_drop_prob = 0.2):
@@ -58,40 +58,8 @@ class ChordWorldEnv(gym.Env):
 
         self.state = self._get_obs()
 
-        # self.previous_network_state = None
-        # self.network_state = None  
-         
-        # # Define max network size and r based on the network
-        # self.min_network_size = 2
-        # self.max_network_size = self.network.max_network_size
-        # self.r = self.network.r  # This should be 2
-        
-        
 
-        # self.original_observation_space = gym.spaces.Dict({
-        #     'stability_score': gym.spaces.Box(low=0.0, high=1.0, shape=(1,), dtype=np.float32),
-        #     'active_nodes': gym.spaces.MultiBinary(self.network.bank_size),
-        #     'finger_tables': gym.spaces.Box(
-        #         low=0, high=self.max_network_size - 1,
-        #         shape=(self.max_network_size, self.r +1 ),
-        #         dtype=np.int32
-        #         ),
-        #     })
-        
-        # self.observation_space = flatten_space(self.original_observation_space)
 
-        # # Lookup stats
-        # self.total_lookup_attempts = 0
-        # self.failed_lookup_attempts = 0
-        # self.successful_lookup_attempts = 0
-        # # self.lookup_success_rate = 0.0
-
-        # self.is_successful_lookup = False
-
-        # # Stabilization score
-        # self.previous_stability_score = 0.0
-        # self.stability_score = 0.0
-        
 
     def seed(self, seed = None):
         self.np_random, seed = gym.utils.seeding.np_random(seed)
@@ -103,15 +71,6 @@ class ChordWorldEnv(gym.Env):
         ''' 
             Get the observation
         '''
-        # if self.total_lookup_attempts > 0:
-        #     self.lookup_success_rate = self.successful_lookup_attempts / self.total_lookup_attempts
-        # else:
-        #     self.lookup_success_rate = 0.0
-
-         # Initialize observations
-        # active_nodes = np.zeros(self.max_network_size, dtype=np.int8)
-        # finger_tables = np.full((self.max_network_size, self.r + 1), -1, dtype=np.int32)  # Fill with -1 for inactive nodes
-         # Agent-only local observation
         agent_node = self.network.node_bank[self.agent_id]
 
         # Local stability indicator: how correct is the agent’s immediate successor?
@@ -123,39 +82,28 @@ class ChordWorldEnv(gym.Env):
         obs = np.array([pred, succ, local_stability], dtype=np.float32)
         return obs
 
-
-    #    # Populate active_nodes and finger_tables
-    #     for node_id, node in self.network.node_bank.items():
-    #         if node.is_active:
-    #             active_nodes[node_id] = 1
-    #             successors = node.finger_table.get('successors', [])
-    #             predecessors = node.finger_table.get('predecessors', [])
-    #             finger_entries = successors + predecessors
-    #             # # Pad finger_entries 
-    #             finger_entries += [-1] * (self.r + 1 - len(finger_entries))
-    #             finger_tables[node_id] = np.array(finger_entries)
-                
-    #     # self.lookup_success_rate = self._calculate_lookup_success_rate()
-        
-    #     observation = {
-    #         'lookup_success_rate': np.array([self.lookup_success_rate], dtype=np.float32),
-    #         'stability_score': np.array([self.stability_score], dtype=np.float32),
-    #         'active_nodes': active_nodes,
-    #         'finger_tables': finger_tables,
-    #     }
-
-    #     flat_observaton = flatten(self.original_observation_space, observation)
-    #     return flat_observaton
-
     def _local_stability_indicator(self, node):
-        # Simple heuristic: if agent’s successor’s predecessor is agent, local stability = 1.0 else <1.0
-        if node.successor is None:
-            return 0.0
-        succ_node = self.network.node_bank[node.successor]
-        if succ_node.predecessor == node.id:
-            return 1.0
-        else:
-            return 0.0
+        """
+        Improved heuristic:
+        - +0.5 if agent’s successor’s predecessor is agent
+        - +0.5 if agent’s predecessor’s successor is agent
+        This gives a range [0.0, 1.0].
+        """
+        stability_score = 0.0
+
+        # Check successor relationship
+        if node.successor is not None:
+            succ_node = self.network.node_bank[node.successor]
+            if succ_node.predecessor == node.id:
+                stability_score += 0.5
+
+        # Check predecessor relationship
+        if node.predecessor is not None:
+            pred_node = self.network.node_bank[node.predecessor]
+            if pred_node.successor == node.id:
+                stability_score += 0.5
+
+        return stability_score
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -196,37 +144,6 @@ class ChordWorldEnv(gym.Env):
         truncated = False
 
         return self.state, reward, terminated, truncated, {}
-        # self.current_step += 1
-
-        # # Record the stability score before the environment update
-        # stability_before_update = self._calculate_stability_score()
-
-        # # update the environment
-        # self._update_environment()
-
-        # # Calculate stability score after the environment update
-        # stability_after_update = self._calculate_stability_score()
-
-        # # Agent takes an action
-        # self._take_action(action)
-        
-        # # Calculate stability score after the agent's action
-        # stability_after_action = self._calculate_stability_score()  
-        # self.stability_score = stability_after_action
-
-        # # Compute reward based on the action and changes in stability
-        # reward = self._compute_reward(action, stability_before_update, stability_after_update, stability_after_action)
-
-        # # Get new observation
-        # self.state = self._get_obs()
-
-        # # Check if the done
-        # done = self._check_done()
-
-        # terminated = done
-        # truncated = False
-
-        # return self.state, reward, terminated, truncated, {}
 
     def _compute_reward(self, action, stability_before, stability_after):
         ''' 
@@ -257,45 +174,8 @@ class ChordWorldEnv(gym.Env):
 
         return reward
 
-        # # Determine if the network became less stable after the environment update
-        # network_became_unstable = stability_after_env < stability_before
-
-        # # Determine if the agent's action improved stability
-        # stability_improved = stability_after_action > stability_after_env
-
-        # # Agent's decision and its impact
-        # if action == Action.STABILIZE.value:
-        #     if stability_improved:
-        #         reward = 1  # Positive reward for improving stability
-        #     else:
-        #         reward = -1  # Penalty for failing to improve stability
-        #         # we need to actually stabilize the network
-        #         # self.network.stabilize()
-
-        # elif action == Action.DO_NOTHING.value:
-        #     if network_became_unstable:
-        #         reward = -1  # Penalty for not addressing instability
-        #         # self.network.stabilize()
-        #     else:
-        #         reward = 1  # Positive reward for maintaining stability
-
-        # return reward   
 
     def _update_environment(self):
-        # ''' 
-        #     Simulate network dynamics
-        #     Nodes may join or leave, affecting the agent
-        #     50% chances for nodes to join or leave
-        # '''
-        # current_network_size = len([n for n in self.network.node_bank.values() if n.is_active])
-        # while current_network_size < self.min_network_size:
-        #     self.network.join_x_random_nodes(x=1)
-        #     current_network_size = len([n for n in self.network.node_bank.values() if n.is_active])
-
-        # if random.random() < 0.33:
-        #     self.network.join_x_random_nodes(x=1)
-        # elif random.random() < 0.66:
-        #     self.network.drop_x_random_nodes(x=1)
         # This simulates a second passing
         # Churn simulation
 
@@ -332,95 +212,6 @@ class ChordWorldEnv(gym.Env):
                     if self.current_step % self.fix_fingers_interval == 0:
                         self.network.fix_fingers(node)
 
-    # def _initialize_network(self):
-    #     ''' 
-    #         State of the network should be set 
-    #     '''
-    #     self.network_state = self.network.get_network_state()
-    #     return self.network_state
-
-    # def _take_action(self, action):
-    #     ''' 
-    #         Take an action based on the action space
-    #     '''
-    #     if action == Action.STABILIZE.value:
-    #         self._stabilize()
-
-    # def _stabilize(self):
-    #     ''' 
-    #         Stabilization from Chord
-    #         Return stability score. Value between 0 and 1
-    #     '''
-    #     self.network.stabilize()
-        
-
-    # def _initiate_lookup(self):
-    #     ''' 
-    #         Determine if the lookup is successful based on the network state
-    #         return True if successful, False otherwise
-    #         update look up stats to help determine the lookup success rate
-    #     '''
-    #     # key should be the id of a node inside the network
-
-    #     key = random.randint(1, self.network.bank_size)
-    #     result = self.network.lookup(key)
-    #     self.total_lookup_attempts += 1
-    #     if result is not None:
-    #         self.successful_lookup_attempts += 1
-    #         self.is_successful_lookup = True
-    #     else:
-    #         self.failed_lookup_attempts += 1
-    #         self.is_successful_lookup = False
-
-    # def _calculate_lookup_success_rate(self):
-    #     ''' 
-    #         Calculate the lookup success rate
-    #     '''
-    #     active_node_ids = [node.id for node in self.network.node_bank.values() if node.is_active]
-    #     total_lookup_attempts = len(active_node_ids)
-    #     successful_lookup_attempts = 0
-    #     seen_nodes = set()
-    #     for key in active_node_ids:
-    #         # key = random.randint(1, self.network.bank_size)
-    #         result = self.network.lookup(key)
-    #         if result is not None:
-    #             successful_lookup_attempts += 1
-    #         seen_nodes.add(key)
-    #     return successful_lookup_attempts / total_lookup_attempts
-    
-    # def _calculate_stability_score(self):
-    #     total_entries = 0
-    #     correct_entries = 0
-    #     active_nodes = [node for node in self.network.node_bank.values() if node.is_active]
-    #     for node in active_nodes:
-    #         ideal_finger_table = self.network.compute_ideal_finger_table(node)
-    #         actual_finger_table = node.finger_table# print(f'Ideal finger table: {ideal_finger_table}')
-    #         # print(f'Actual finger table: {actual_finger_table}')
-    #         # Ensure both lists are of the same length
-    #         max_len = max(len(ideal_finger_table['successors']), len(actual_finger_table['successors']))
-    #         # Pad shorter list with -1
-    #         ideal_finger_table['successors'] += [-1] * (max_len - len(ideal_finger_table['successors']))
-    #         actual_finger_table['successors'] += [-1] * (max_len - len(actual_finger_table['successors']))
-                
-    #             # total_entries += max_len
-    #         # Compare entries one by one
-    #         for ideal_entry, actual_entry in zip(ideal_finger_table['successors'], actual_finger_table['successors']):
-    #             total_entries += 1
-    #             if ideal_entry == actual_entry:
-    #                     correct_entries += 1
-    #     if total_entries > 0:
-    #         # print(f'-----------------Stability score: {correct_entries / total_entries}')
-    #         return correct_entries / total_entries
-    #     else:
-    #         return 0.0
-        
-    # def _check_done(self):
-    #     ''' 
-    #         Define conditions for ending the episode
-    #     '''
-    #     if self.current_step >= self.max_steps:
-    #         return True
-    #     return False  # Continuous task
 
     def close(self):
         ''' 
@@ -674,7 +465,7 @@ class ChordNetwork:
                     for backup_successor_id in node.successor_list:
                         if self._is_in_open_interval(backup_successor_id, node.id, id, verbose=False):
                             if self.node_bank[backup_successor_id].is_active:
-                                print(f'-------------SUCCESSOR LIST BACKUP FOR X: {backup_successor_id}')
+                                # print(f'-------------SUCCESSOR LIST BACKUP FOR X: {backup_successor_id}')
                                 return self.node_bank[backup_successor_id]
                     # self.display_network()
                     # print(f'id being searched for is: {id}, using Node: {node.id}')
@@ -871,7 +662,7 @@ class ChordNetwork:
     #         print(f"Error stabilizing node {node.id}: {str(e)}")
             
     def stabilize(self, node: Node):
-        print(f'Stabilizing node {node.id}...')
+        # print(f'Stabilizing node {node.id}...')
         
         try:
             # Primary successor
@@ -879,7 +670,7 @@ class ChordNetwork:
             primary_successor_node = self.node_bank.get(primary_successor_id)
             
             if not primary_successor_node or not primary_successor_node.is_active:
-                print(f'Primary successor {primary_successor_id} is not active.')
+                # print(f'Primary successor {primary_successor_id} is not active.')
                 # Find the next active successor from the successor list
                 for i in range(len(node.successor_list)):
                     backup_successor_id = node.successor_list[i]
@@ -887,7 +678,7 @@ class ChordNetwork:
                     if backup_successor_node and backup_successor_node.is_active:
                         node.successor = backup_successor_id
                         node.finger_table['successor'][0] = backup_successor_id
-                        print(f'Updated primary successor to backup successor {backup_successor_id}.')
+                        # print(f'Updated primary successor to backup successor {backup_successor_id}.')
                         self.notify(backup_successor_node, node)
                         break
                 else:
@@ -897,7 +688,7 @@ class ChordNetwork:
                 x = primary_successor_node.predecessor
                 if x is not None and self._is_in_open_interval(x, node.id, primary_successor_id):
                     # Update primary successor to x
-                    print(f'Found closer successor {x} for node {node.id}. Updating successor.')
+                    # print(f'Found closer successor {x} for node {node.id}. Updating successor.')
                     node.successor = x
                     node.finger_table['successor'][0] = x
                     self.notify(self.node_bank[x], node)
@@ -931,7 +722,7 @@ class ChordNetwork:
         for i in range(1, self.k + 1):
             successor_id = sorted_node_ids[(index + i) % len(sorted_node_ids)]
             node.successor_list[i - 1] = successor_id
-        print(f"Node {node.id} successor list updated to: {node.successor_list}")
+        # print(f"Node {node.id} successor list updated to: {node.successor_list}")
 
     def fix_fingers(self, node: Node):  # Update the finger table of a node
         # print(f'fixing fingers for node {node.id}...')
@@ -983,14 +774,14 @@ class ChordNetwork:
             identifier_successor_id_map[identifier] = sorted_node_ids[idx]
                 
         # initialize the successor nodes in the finger tables of the given node
-        print(f'identifier_successor_id_map is: {identifier_successor_id_map}')
+        # print(f'identifier_successor_id_map is: {identifier_successor_id_map}')
         for i in range(self.m):
             start = finger_table['start'][i]
             finger_table['successor'][i] = identifier_successor_id_map[start]
 
         
     def join_network(self, node: Node): # find the immediate successor of node
-        print(f'Joining node {node.id} to the network...')
+        # print(f'Joining node {node.id} to the network...')
         try:
             if node.id not in self.node_bank:
                 self.node_bank[node.id] = node
@@ -1009,11 +800,11 @@ class ChordNetwork:
                 node.finger_table['successor'][0] = node.id
                 node.predecessor = node.id
                 node.successor_list = [node.id] * self.k
-                print(f"Node {node.id} is the only active node in the network.")
+                # print(f"Node {node.id} is the only active node in the network.")
                 return
             
             n_prime = random.choice(active_nodes)
-            print(f'n_prime that is chosen is: {n_prime.id}')  
+            # print(f'n_prime that is chosen is: {n_prime.id}')  
 
             node.set_active_status(True)
 
@@ -1073,7 +864,7 @@ class ChordNetwork:
         node.successor = None
         node.finger_table = {}
         
-        print(f"Node {node.id} has left the network, it status is now: {node.is_active}.\n")
+        # print(f"Node {node.id} has left the network, it status is now: {node.is_active}.\n")
      
 
     def join_x_random_nodes(self, x: int):
@@ -1121,7 +912,7 @@ if __name__ == "__main__":
     m = 3
     nodes_to_activate = [0, 1, 3]   
     network = ChordNetwork(m=m, nodes_to_activate=nodes_to_activate, verbose=True)
-    network.display_network()
+    # network.display_network()
         
         
     print('--------------------------------')

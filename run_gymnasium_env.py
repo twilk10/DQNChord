@@ -77,6 +77,7 @@ class DQN_Agent:
                  decay_episodes, clip_grad_norm, learning_rate, discount, memory_capacity):
         
         self.loss_history = []
+        self.step_loss_history = []
         self.running_loss = 0
         self.learned_counts = 0
                      
@@ -124,6 +125,8 @@ class DQN_Agent:
         
         self.running_loss += loss.item()
         self.learned_counts += 1
+
+        self.step_loss_history.append(loss.item())
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -250,44 +253,61 @@ def train(agent, env):
         print(result)
     agent.plot_training()
 
-def test(agent, env, max_episodes, path):  
+    plt.figure()
+    plt.title("Training Step Loss")
+    plt.plot(agent.agent.step_loss_history, label='Per-step Loss', color='blue', alpha=0.6)
+    plt.xlabel("Training Steps")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+def test(agent, env, max_episodes, path):
     # Load the saved model
     agent.agent.main_network.load_state_dict(torch.load(path))
     agent.agent.main_network.eval()
     
-    # Success counters
-    stability_success_count = 0
+    # Use the appropriate device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    original_obs_space = env.unwrapped.original_observation_space  # Access the original observation space
 
-    for episode in range(1, max_episodes + 1):         
+    stability_success_count = 0
+    
+    # No need to access original_obs_space since the environment returns a simple array.
+    # observation_space = env.unwrapped.observation_space  # Not strictly needed here
+
+    # Define a success threshold for stability
+    stability_threshold = 0.8
+    
+    for episode in range(1, max_episodes + 1):
+        # Reset the environment
         state, _ = env.reset(seed=seed)
         state_tensor = torch.FloatTensor(state).to(device)
+        
         done = False
         truncation = False
         step_size = 0
         episode_reward = 0
-        stability_score = 0.0  # Initialize stability score for the episode
-                                                                
+        
         while not done and not truncation:
             # Normalize state
             state_norm = (state_tensor - state_tensor.mean()) / (state_tensor.std() + 1e-8)
             action = agent.agent.select_action(state_norm)
+            
             next_state, reward, done, truncation, _ = env.step(action)
             next_state_tensor = torch.FloatTensor(next_state).to(device)
-    
-            # Update state for the next iteration
+
+            # Update state and counters
             state_tensor = next_state_tensor
             episode_reward += reward
             step_size += 1
 
-        # After the episode ends, extract stability_score
+        # After the episode ends, extract the stability score
+        # The observation format is [pred, succ, local_stability]
+        # Stability score is the third element of the last state observation
         state_np = state_tensor.cpu().numpy()
-        obs_dict = unflatten(original_obs_space, state_np)
-        stability_score = obs_dict['stability_score'][0]
+        stability_score = state_np[2]
 
         # Check if the stability_score meets the success criterion
-        stability_threshold = 0.8  # Define your success threshold
         if stability_score >= stability_threshold:
             stability_success_count += 1
 
@@ -298,7 +318,7 @@ def test(agent, env, max_episodes, path):
                   f"Stability Score: {stability_score:.2f}, "
                   f"Success: {'Yes' if stability_score >= stability_threshold else 'No'}")
         print(result)
-    
+
     # Calculate and print overall success rate
     success_rate_based_on_stability = (stability_success_count / max_episodes) * 100
     print(f"\nOverall Success Rate Based on Stability: {success_rate_based_on_stability:.2f}%")
@@ -309,16 +329,16 @@ def main():
     env = gym.make('gymnasium_env/ChordWorldEnv-v0')
 
     RL_hyperparams = {
-        "clip_grad_norm": 3.0,
-        "learning_rate": 1e-5,
-        "discount_factor": 0.99,
+        "clip_grad_norm": 1.0,
+        "learning_rate": 5e-5,
+        "discount_factor": 0.995,
         "batch_size": 64,
         "update_frequency": 1000,
         "max_episodes": 3000,
         "max_steps": 200,
         "epsilon_max": 0.999, 
         "epsilon_min": 0.01,
-        "decay_episodes": 3000,
+        "decay_episodes": 2000,
         "memory_capacity": 10000,
         "action_space": env.action_space,
         "observation_space": env.observation_space,
@@ -328,7 +348,7 @@ def main():
     train(DRL_Chord, env)
     DRL_Chord.agent.save("Chord_model.pt")
 
-    test(DRL_Chord, env, max_episodes=200, path="Chord_model.pt")
+    test(DRL_Chord, env, max_episodes=40, path="Chord_model.pt")
 
 if __name__ == '__main__':
     main()
