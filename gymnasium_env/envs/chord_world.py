@@ -367,14 +367,14 @@ class ChordNetwork:
         successor_list = [0] * self.k
         for idx, node_id in enumerate(active_nodes_ids):
             current_node = self.node_bank[node_id]
-            print(f'f here is the node\n {current_node}')
+            # print(f'f here is the node\n {current_node}')
             for i in range(self.k):
                 next_successor_index = (idx + pow(2, i)) % total_number_of_active_nodes
                 next_successor_node_id = active_nodes_ids[next_successor_index]
                 if next_successor_node_id == current_node.id:
                     continue
                 # print('current node id is: ', current_node)
-                print(f'current node {current_node.id} successor list is: {current_node.successor_list}')
+                # print(f'current node {current_node.id} successor list is: {current_node.successor_list}')
                 
                 successor_list[i] = next_successor_node_id 
             current_node.successor_list = successor_list
@@ -737,11 +737,11 @@ class ChordNetwork:
             for i in range(1, self.k + 1):
                 successor_id = active_node_ids[(index + i) % len(active_node_ids)]
                 node.successor_list[i - 1] = successor_id
-                print(f"Node {node.id} successor list updated to: {node.successor_list}")
+                # print(f"Node {node.id} successor list updated to: {node.successor_list}")
         else:
             # Node is inactive; clear its successor list
             node.successor_list = [0] * self.k
-            print(f"Node {node.id} is inactive. Successor list has been cleared.")
+            # print(f"Node {node.id} is inactive. Successor list has been cleared.")
 
     def fix_fingers(self, node: Node):  # Update the finger table of a node
         # print(f'fixing fingers for node {node.id}...')
@@ -801,7 +801,7 @@ class ChordNetwork:
         
     def join_network(self, node: Node): # find the immediate successor of node
         # print(f'Joining node {node.id} to the network...')
-        try:
+        # try:
             if node.id not in self.node_bank:
                 self.node_bank[node.id] = node
             else:
@@ -827,7 +827,7 @@ class ChordNetwork:
 
             node.set_active_status(True)
 
-            self.init_finger_table(node, n_prime) # n_prime is the node that is helping to init the finger table of the joining node
+            self.manually_init_finger_table(node, n_prime) # n_prime is the node that is helping to init the finger table of the joining node
             
             # Populate the successor list for the joining node
             self.populate_successor_list(node)
@@ -836,10 +836,45 @@ class ChordNetwork:
             successor_node = self.node_bank[node.successor]
             self.notify(successor_node, node)
             
-        except Exception as e:
-            print(f"Error joining node {node.id} to network: {str(e)}")
-            node.set_active_status(False)
+        # except Exception as e:
+        #     print(f"Error joining node {node.id} to network: {str(e)}")
+        #     node.set_active_status(False)
     
+    def manually_init_finger_table(self, joining_node: Node, n_prime: Node):
+        joining_node.finger_table = {
+            'start': [0]* self.m,
+            'interval': [0]*self.m,
+            'successor': [0]*self.m
+        }
+
+        for i in range(self.m):
+           start = (joining_node.id + pow(2, i)) % pow(2, self.m)
+           joining_node.finger_table['start'][i] = start
+           joining_node.finger_table['interval'][i] = (start, (joining_node.id + pow(2, i+1)) % pow(2, self.m)) 
+
+        
+        active_node_ids = sorted([n.id for n in self.node_bank.values() if n.is_active])
+        for i in range(len(active_node_ids)):
+            current_node_id = active_node_ids[i]
+            next_node_id = active_node_ids[(i + 1) % len(active_node_ids)]
+            if self._is_in_open_interval(joining_node.id, current_node_id, next_node_id):
+                joining_node.predecessor = current_node_id
+                break
+        
+
+        for i in range(self.m):
+            start = joining_node.finger_table['start'][i]
+            joining_node.finger_table['successor'][i] = active_node_ids[0]
+            for active_node_id in reversed(active_node_ids):
+                if start <= active_node_id:
+                    joining_node.finger_table['successor'][i] = active_node_id
+                    break
+
+        self.populate_successor_list(joining_node)
+        joining_node.successor = joining_node.finger_table['successor'][0]
+
+
+
     def init_finger_table(self, joining_node: Node, n_prime: Node):
         joining_node.finger_table = {
             'start': [0]* self.m,
@@ -890,6 +925,7 @@ class ChordNetwork:
         # Join x random inactive nodes to the network
         for _ in range(x):
             inactive_nodes = [n for n in self.node_bank.values() if not n.is_active]
+            # print(f'inactive nodes are: {[n.id for n in inactive_nodes]}')  
             if not inactive_nodes:
                 break
             node_to_join = random.choice(inactive_nodes)
