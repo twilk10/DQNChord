@@ -263,65 +263,68 @@ def train(agent, env):
     plt.show()
 
 def test(agent, env, max_episodes, path):
-    # Load the saved model
     agent.agent.main_network.load_state_dict(torch.load(path))
     agent.agent.main_network.eval()
-    
-    # Use the appropriate device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     stability_success_count = 0
-    
-    # No need to access original_obs_space since the environment returns a simple array.
-    # observation_space = env.unwrapped.observation_space  # Not strictly needed here
-
-    # Define a success threshold for stability
     stability_threshold = 0.8
-    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     for episode in range(1, max_episodes + 1):
-        # Reset the environment
         state, _ = env.reset(seed=seed)
         state_tensor = torch.FloatTensor(state).to(device)
-        
+
         done = False
         truncation = False
         step_size = 0
         episode_reward = 0
-        
+        episode_stabilities = []
+
         while not done and not truncation:
-            # Normalize state
             state_norm = (state_tensor - state_tensor.mean()) / (state_tensor.std() + 1e-8)
             action = agent.agent.select_action(state_norm)
-            
             next_state, reward, done, truncation, _ = env.step(action)
             next_state_tensor = torch.FloatTensor(next_state).to(device)
 
-            # Update state and counters
+            local_stability = next_state[2]
+            episode_stabilities.append(local_stability)
+
             state_tensor = next_state_tensor
             episode_reward += reward
             step_size += 1
 
-        # After the episode ends, extract the stability score
-        # The observation format is [pred, succ, local_stability]
-        # Stability score is the third element of the last state observation
-        state_np = state_tensor.cpu().numpy()
-        stability_score = state_np[2]
-
-        # Check if the stability_score meets the success criterion
-        if stability_score >= stability_threshold:
+        # Compute average stability for the agent
+        average_stability = sum(episode_stabilities) / len(episode_stabilities) if episode_stabilities else 0.0
+        is_success = average_stability >= stability_threshold
+        if is_success:
             stability_success_count += 1
 
-        # Print episode result
-        result = (f"Episode: {episode}, "
-                  f"Steps: {step_size}, "
-                  f"Reward: {episode_reward:.2f}, "
-                  f"Stability Score: {stability_score:.2f}, "
-                  f"Success: {'Yes' if stability_score >= stability_threshold else 'No'}")
+        # Compute all nodes' stabilities
+        all_stabilities = {}
+        for node_id, node in env.network.node_bank.items():
+            if node.is_active:
+                node_stability = env._local_stability_indicator(node)
+                all_stabilities[node_id] = node_stability
+
+        average_stability_all = (sum(all_stabilities.values()) / len(all_stabilities)) if all_stabilities else 0.0
+
+        # Print episode result with additional metrics
+        result = (
+            f"Episode: {episode}, "
+            f"Steps: {step_size}, "
+            f"Reward: {episode_reward:.2f}, "
+            f"Agent Avg Stability: {average_stability:.2f}, "
+            f"All Nodes Avg Stability: {average_stability_all:.2f}, "
+            f"Agent Stabilize: {env.agent_stabilize_count}, "
+            f"Non-Agent Stabilize: {env.non_agent_stabilize_count}, "
+            f"Agent Fix Fingers: {env.agent_fix_fingers_count}, "
+            f"Non-Agent Fix Fingers: {env.non_agent_fix_fingers_count}, "
+            f"Success: {'Yes' if is_success else 'No'}"
+        )
         print(result)
 
-    # Calculate and print overall success rate
-    success_rate_based_on_stability = (stability_success_count / max_episodes) * 100
-    print(f"\nOverall Success Rate Based on Stability: {success_rate_based_on_stability:.2f}%")
+    success_rate = (stability_success_count / max_episodes) * 100
+    print(f"\nSuccess Rate Based on Average Stability: {success_rate:.2f}%")
 
 
 def main():
