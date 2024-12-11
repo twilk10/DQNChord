@@ -22,5 +22,13 @@ or create your conda environment via the requirements.txt
 ```
 conda create --name <env> --file requirements.txt
 ```
+Additionally you may need to run the following command in order to run the custom environment:
+```
+pip install -e .
+```
+run via this command
+```
+py run_gymnasium_env.py
+```
 ## Quick Info
 - Currently there is a trained model Chord_model.pt that you can test. Other than that you can run the training and tweak what ever you would like.
