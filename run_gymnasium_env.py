@@ -18,7 +18,7 @@ gc.collect()
 torch.cuda.empty_cache()
 
 # Set seeds for reproducibility
-seed = 1234
+seed = 42 
 np.random.seed(seed)
 torch.manual_seed(seed)
 if torch.cuda.is_available():
@@ -262,13 +262,27 @@ def train(agent, env):
     plt.grid(True)
     plt.show()
 
-def test(agent, env, max_episodes, path):
+import torch
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def test(agent, env, max_episodes, path, seed=42):
     agent.agent.main_network.load_state_dict(torch.load(path))
     agent.agent.main_network.eval()
 
     stability_success_count = 0
     stability_threshold = 0.8
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Initialize lists to store metrics
+    episodes = []
+    agent_avg_stabilities = []
+    all_nodes_avg_stabilities = []
+    agent_stabilize_counts = []
+    non_agent_stabilize_counts = []
+    agent_fix_fingers_counts = []
+    non_agent_fix_fingers_counts = []
+    success_flags = []
 
     for episode in range(1, max_episodes + 1):
         state, _ = env.reset(seed=seed)
@@ -283,7 +297,7 @@ def test(agent, env, max_episodes, path):
         while not done and not truncation:
             state_norm = (state_tensor - state_tensor.mean()) / (state_tensor.std() + 1e-8)
             action = agent.agent.select_action(state_norm)
-            next_state, reward, done, truncation, _ = env.step(action)
+            next_state, reward, done, truncation, info = env.step(action)
             next_state_tensor = torch.FloatTensor(next_state).to(device)
 
             local_stability = next_state[2]
@@ -299,14 +313,15 @@ def test(agent, env, max_episodes, path):
         if is_success:
             stability_success_count += 1
 
-        # Compute all nodes' stabilities
-        all_stabilities = {}
-        for node_id, node in env.network.node_bank.items():
-            if node.is_active:
-                node_stability = env._local_stability_indicator(node)
-                all_stabilities[node_id] = node_stability
-
-        average_stability_all = (sum(all_stabilities.values()) / len(all_stabilities)) if all_stabilities else 0.0
+        # Append metrics to lists
+        episodes.append(episode)
+        agent_avg_stabilities.append(average_stability)
+        all_nodes_avg_stabilities.append(info.get("average_stability_all", 0.0))
+        agent_stabilize_counts.append(info.get("agent_stabilize_count", 0))
+        non_agent_stabilize_counts.append(info.get("non_agent_stabilize_count", 0))
+        agent_fix_fingers_counts.append(info.get("agent_fix_fingers_count", 0))
+        non_agent_fix_fingers_counts.append(info.get("non_agent_fix_fingers_count", 0))
+        success_flags.append(is_success)
 
         # Print episode result with additional metrics
         result = (
@@ -314,17 +329,73 @@ def test(agent, env, max_episodes, path):
             f"Steps: {step_size}, "
             f"Reward: {episode_reward:.2f}, "
             f"Agent Avg Stability: {average_stability:.2f}, "
-            f"All Nodes Avg Stability: {average_stability_all:.2f}, "
-            f"Agent Stabilize: {env.agent_stabilize_count}, "
-            f"Non-Agent Stabilize: {env.non_agent_stabilize_count}, "
-            f"Agent Fix Fingers: {env.agent_fix_fingers_count}, "
-            f"Non-Agent Fix Fingers: {env.non_agent_fix_fingers_count}, "
+            f"All Nodes Avg Stability: {info.get('average_stability_all', 0.0):.2f}, "
+            f"Agent Stabilize: {info.get('agent_stabilize_count', 0)}, "
+            f"Non-Agent Stabilize: {info.get('non_agent_stabilize_count', 0)}, "
+            f"Agent Fix Fingers: {info.get('agent_fix_fingers_count', 0)}, "
+            f"Non-Agent Fix Fingers: {info.get('non_agent_fix_fingers_count', 0)}, "
+            f"total_drop_join: {info.get('total_drop_join', 0)}, "
             f"Success: {'Yes' if is_success else 'No'}"
         )
         print(result)
 
     success_rate = (stability_success_count / max_episodes) * 100
     print(f"\nSuccess Rate Based on Average Stability: {success_rate:.2f}%")
+
+    # Plotting
+    sns.set(style="whitegrid")
+    plt.figure(figsize=(15, 20))
+
+    # Plot Agent Avg Stability vs All Nodes Avg Stability
+    plt.subplot(3, 2, 1)
+    plt.plot(episodes, agent_avg_stabilities, label='Agent Avg Stability', color='blue')
+    plt.plot(episodes, all_nodes_avg_stabilities, label='All Nodes Avg Stability', color='green')
+    plt.xlabel('Episode')
+    plt.ylabel('Average Stability')
+    plt.title('Average Stability per Episode')
+    plt.legend()
+
+    # Plot Agent Stabilize vs Non-Agent Stabilize
+    plt.subplot(3, 2, 2)
+    plt.plot(episodes, agent_stabilize_counts, label='Agent Stabilize Count', color='red')
+    plt.plot(episodes, non_agent_stabilize_counts, label='Non-Agent Stabilize Count', color='orange')
+    plt.xlabel('Episode')
+    plt.ylabel('Stabilize Count')
+    plt.title('Stabilize Counts per Episode')
+    plt.legend()
+
+    # Plot Agent Fix Fingers vs Non-Agent Fix Fingers
+    plt.subplot(3, 2, 3)
+    plt.plot(episodes, agent_fix_fingers_counts, label='Agent Fix Fingers Count', color='purple')
+    plt.plot(episodes, non_agent_fix_fingers_counts, label='Non-Agent Fix Fingers Count', color='brown')
+    plt.xlabel('Episode')
+    plt.ylabel('Fix Fingers Count')
+    plt.title('Fix Fingers Counts per Episode')
+    plt.legend()
+
+    # # Plot Success Rate
+    # plt.subplot(3, 2, 4)
+    # plt.plot(episodes, success_flags, label='Success', color='cyan')
+    # plt.xlabel('Episode')
+    # plt.ylabel('Success (1=Yes, 0=No)')
+    # plt.title('Success per Episode')
+    # plt.legend()
+
+    # # Plot Cumulative Success Rate
+    # cumulative_success = [sum(success_flags[:i+1]) / (i+1) * 100 for i in range(len(success_flags))]
+    # plt.subplot(3, 2, 5)
+    # plt.plot(episodes, cumulative_success, label='Cumulative Success Rate', color='magenta')
+    # plt.xlabel('Episode')
+    # plt.ylabel('Cumulative Success Rate (%)')
+    # plt.title('Cumulative Success Rate over Episodes')
+    # plt.legend()
+
+    # Adjust layout and show plots
+    plt.tight_layout()
+    plt.show()
+
+    # Optionally, save the plots to a file
+    # plt.savefig('test_metrics_plots.png')
 
 
 def main():
@@ -333,25 +404,26 @@ def main():
 
     RL_hyperparams = {
         "clip_grad_norm": 1.0,
-        "learning_rate": 5e-5,
-        "discount_factor": 0.995,
+        "learning_rate": 1e-4,
+        "discount_factor": 0.99,
         "batch_size": 64,
         "update_frequency": 1000,
         "max_episodes": 3000,
         "max_steps": 200,
         "epsilon_max": 0.999, 
         "epsilon_min": 0.01,
-        "decay_episodes": 2000,
-        "memory_capacity": 10000,
+        "decay_episodes": 2500,
+        "memory_capacity": 20000,
         "action_space": env.action_space,
         "observation_space": env.observation_space,
     }
 
     DRL_Chord = Model_TrainTest(RL_hyperparams)
-    train(DRL_Chord, env)
-    DRL_Chord.agent.save("Chord_model.pt")
+    # train(DRL_Chord, env)
+    # DRL_Chord.agent.save("Chord_model_churn_20.pt")
 
-    test(DRL_Chord, env, max_episodes=40, path="Chord_model.pt")
+    # test(DRL_Chord, env, max_episodes=40, path="Chord_model_churn_20.pt")
+    test(DRL_Chord, env, max_episodes=1000, path="Chord_model.pt")
 
 if __name__ == '__main__':
     main()

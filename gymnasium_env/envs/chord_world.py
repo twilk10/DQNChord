@@ -27,8 +27,8 @@ class ChordWorldEnv(gym.Env):
                  stabalize_interval = 5, 
                  fix_fingers_interval = 10, 
                  agent_id = 0, 
-                 churn_join_prob = 0.2, 
-                 churn_drop_prob = 0.2):
+                 churn_join_prob = 0.1, 
+                 churn_drop_prob = 0.1):
         super(ChordWorldEnv, self).__init__()
 
         self.seed(seed)
@@ -62,6 +62,8 @@ class ChordWorldEnv(gym.Env):
         self.non_agent_stabilization_count = 0
         self.non_agent_fix_fingers_count = 0
 
+        self.total_node_join_leave = 0
+
         self.state = self._get_obs()
 
 
@@ -87,6 +89,32 @@ class ChordWorldEnv(gym.Env):
 
         obs = np.array([pred, succ, local_stability], dtype=np.float32)
         return obs
+    
+    def _get_info(self):
+        average_stability_all = self._compute_avg_stabilities()
+        return {
+            "average_stability_all": average_stability_all,
+            "agent_stabilize_count": self.agent_stabilizaton_count,
+            "non_agent_stabilize_count": self.non_agent_stabilization_count,
+            "agent_fix_fingers_count": self.agent_fix_fingers_count,
+            "non_agent_fix_fingers_count": self.non_agent_fix_fingers_count,
+            "total_drop_join": self.total_node_join_leave
+        }
+
+    def _compute_avg_stabilities(self):
+        all_stabilities = {} 
+        for node_id, node in self.network.node_bank.items():
+            if node.id == 0:
+                continue
+            if node.is_active:
+                node_stability = self._local_stability_indicator(node)
+                all_stabilities[node_id] = node_stability
+            
+        average_stability_all = (sum(all_stabilities.values()) / len(all_stabilities)) if all_stabilities else 0.0
+
+        return average_stability_all
+
+
 
     def _local_stability_indicator(self, node):
         """
@@ -152,7 +180,11 @@ class ChordWorldEnv(gym.Env):
         self.non_agent_stabilization_count = 0
         self.non_agent_fix_fingers_count = 0
 
-        return self.state, {}
+        self.total_node_join_leave = 0
+
+        info = self._get_info()
+
+        return self.state, info
 
     def step(self, action):
         self.current_step += 1
@@ -185,7 +217,9 @@ class ChordWorldEnv(gym.Env):
         terminated = done
         truncated = False
 
-        return self.state, reward, terminated, truncated, {}
+        info = self._get_info()
+
+        return self.state, reward, terminated, truncated, info
 
     def _compute_reward(self, action, stability_before, stability_after):
         ''' 
@@ -234,8 +268,8 @@ class ChordWorldEnv(gym.Env):
 
         # a small base reward if stability is already very high
         # This encourages maintaining high stability.
-        if stability_after > 0.9:
-            reward += 0.1  # bonus for maintaining near-perfect stability
+        if stability_after > 0.8:
+            reward += 0.2  # bonus for maintaining near-perfect stability
 
         return reward
 
@@ -245,9 +279,11 @@ class ChordWorldEnv(gym.Env):
 
         r = random.random()
         if r < self.churn_join_prob:
+            self.total_node_join_leave += 1
             self.network.join_x_random_nodes(x=1)
         elif r < self.churn_join_prob + self.churn_drop_prob:
             # drop nodes only if enough active nodes available
+            self.total_node_join_leave += 1
             if len([n for n in self.network.node_bank.values() if n.is_active]) > 1:
                 self.network.drop_x_random_nodes(x=1)
 
