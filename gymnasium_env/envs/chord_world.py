@@ -63,9 +63,12 @@ class ChordWorldEnv(gym.Env):
         self.non_agent_fix_fingers_count = 0
 
         self.total_node_join_leave = 0
-        
+
         self.state = self._get_obs()
-        
+
+
+
+
     def seed(self, seed = None):
         self.np_random, seed = gym.utils.seeding.np_random(seed)
         random.seed(seed)
@@ -73,10 +76,8 @@ class ChordWorldEnv(gym.Env):
         return [seed]
     
     def _get_obs(self):
-        ''' 
-            Get the observation
-        '''
         agent_node = self.network.node_bank[self.agent_id]
+
         # Local stability indicator: how correct is the agent’s immediate successor?
         local_stability = self._local_stability_indicator(agent_node)
 
@@ -125,7 +126,6 @@ class ChordWorldEnv(gym.Env):
         Overall range: [0.0, 1.0]
         """
 
-        # Base predecessor/successor correctness
         stability_score = 0.0
 
         # Check successor relationship
@@ -141,17 +141,14 @@ class ChordWorldEnv(gym.Env):
                 stability_score += 0.25
 
         # Check finger table correctness
-        # Assuming node.finger_table is well-defined and the network has a find_successor method.
         finger_table = node.finger_table
         m = self.network.m
         if finger_table and 'start' in finger_table and 'successor' in finger_table:
             correct_fingers = 0
             for i in range(m):
                 start = finger_table['start'][i]
-                # Find the correct successor for this start position
                 correct_node = self.network.find_successor(node, start)
                 if correct_node is not None:
-                    # Check if the stored successor matches the correct successor
                     if finger_table['successor'][i] == correct_node.id:
                         correct_fingers += 1
 
@@ -184,14 +181,13 @@ class ChordWorldEnv(gym.Env):
 
     def step(self, action):
         self.current_step += 1
+
         # Record local stability before environment updates
         stability_before = self._local_stability_indicator(self.network.node_bank[self.agent_id])
 
         # Update environment: churn and non-agent nodes stabilize/fix_fingers at intervals
         self._update_environment()
 
-
-        # Agent takes action
         if action == Action.STABILIZE.value:
             self.agent_stabilizaton_count += 1
             self.network.stabilize(self.network.node_bank[self.agent_id])
@@ -205,10 +201,8 @@ class ChordWorldEnv(gym.Env):
         stability_after = self._local_stability_indicator(self.network.node_bank[self.agent_id])
         reward = self._compute_reward(action, stability_before, stability_after)
 
-        # New observation
         self.state = self._get_obs()
 
-        # Check if done
         done = (self.current_step >= self.max_steps)
         terminated = done
         truncated = False
@@ -224,61 +218,47 @@ class ChordWorldEnv(gym.Env):
         reward = 0.0
         stability_delta = stability_after - stability_before
 
-        # Set a base reward scale factor (tune these values as needed)
-        improve_scale = 1.5  # positive stability changes are multiplied by this
-        decline_scale = -1.0 # negative stability changes are multiplied by this
-        no_change_scale = 0.1 # small reward/penalty if no change
+        improve_scale = 1.5 
+        decline_scale = -1.0
+        no_change_scale = 0.1
 
         if action == Action.STABILIZE.value:
             if stability_delta > 0:
-                # Reward proportional to how much stability improved
                 reward += stability_delta * improve_scale
             elif stability_delta < 0:
-                # Penalize proportional to how much it declined
                 reward += stability_delta * decline_scale
             else:
-                # No change: small negative or neutral to encourage doing something more effective
                 reward += 0.0
 
         elif action == Action.FIX_FINGERS.value:
             if stability_delta > 0:
-                # If stability improved (likely from better finger table accuracy), reward proportionally
                 reward += stability_delta * improve_scale
             elif stability_delta < 0:
-                # Penalize but less harshly, as maybe finger fixing was needed for future improvement
                 reward += stability_delta * decline_scale * 0.5  # half penalty
             else:
-                # No change: give a small positive to not discourage attempts
                 reward += no_change_scale
 
         elif action == Action.DO_NOTHING.value:
             if stability_delta > 0:
-                # Improvement without action: small reward to reflect stability is good
                 reward += stability_delta * (improve_scale / 2.0)  
             elif stability_delta < 0:
-                # Stability declined while doing nothing: larger penalty
                 reward += stability_delta * decline_scale
             else:
-                # Stayed the same: small positive since doing nothing didn't harm
                 reward += no_change_scale
 
         # a small base reward if stability is already very high
-        # This encourages maintaining high stability.
         if stability_after > 0.8:
-            reward += 0.2  # bonus for maintaining near-perfect stability
+            reward += 0.2  
 
         return reward
 
     def _update_environment(self):
-        # This simulates a second passing
         # Churn simulation
-
         r = random.random()
         if r < self.churn_join_prob:
             self.total_node_join_leave += 1
             self.network.join_x_random_nodes(x=1)
         elif r < self.churn_join_prob + self.churn_drop_prob:
-            # drop nodes only if enough active nodes available
             self.total_node_join_leave += 1
             if len([n for n in self.network.node_bank.values() if n.is_active]) > 1:
                 self.network.drop_x_random_nodes(x=1)
@@ -288,20 +268,17 @@ class ChordWorldEnv(gym.Env):
             if not node.is_active or node_id == self.agent_id:
                 continue
 
-            # If we are at a stabilize step for non-agent nodes
             if self.current_step % self.stabalize_interval == 0:
                 self.network.stabilize(node)
                 self.non_agent_stabilization_count += 1
             
-            # If we are at a fix_fingers step for non-agent nodes
             if self.current_step % self.fix_fingers_interval == 0:
                 self.network.fix_fingers(node)
                 self.non_agent_fix_fingers_count += 1
+       
+
 
     def close(self):
-        ''' 
-            Optional: clean up resources
-        '''
         pass
 
 
@@ -437,6 +414,8 @@ class ChordNetwork:
         
         # Get the index of the current node in the sorted active nodes list
         node_index = active_nodes_ids.index(node.id)
+    
+
         # Assign predecessor (only one predecessor for this use case)
         predecessor_index = (node_index - 1) % total_number_of_active_nodes
         predecessor_node_id = active_nodes_ids[predecessor_index]
@@ -1272,5 +1251,3 @@ if __name__ == "__main__":
     #         assert node.finger_table['successor'][0] == 0
 
     # network.display_network() 
-
-
