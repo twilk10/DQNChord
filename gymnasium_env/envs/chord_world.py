@@ -63,12 +63,9 @@ class ChordWorldEnv(gym.Env):
         self.non_agent_fix_fingers_count = 0
 
         self.total_node_join_leave = 0
-
+        
         self.state = self._get_obs()
-
-
-
-
+        
     def seed(self, seed = None):
         self.np_random, seed = gym.utils.seeding.np_random(seed)
         random.seed(seed)
@@ -80,7 +77,6 @@ class ChordWorldEnv(gym.Env):
             Get the observation
         '''
         agent_node = self.network.node_bank[self.agent_id]
-
         # Local stability indicator: how correct is the agent’s immediate successor?
         local_stability = self._local_stability_indicator(agent_node)
 
@@ -188,12 +184,12 @@ class ChordWorldEnv(gym.Env):
 
     def step(self, action):
         self.current_step += 1
-
         # Record local stability before environment updates
         stability_before = self._local_stability_indicator(self.network.node_bank[self.agent_id])
 
         # Update environment: churn and non-agent nodes stabilize/fix_fingers at intervals
         self._update_environment()
+
 
         # Agent takes action
         if action == Action.STABILIZE.value:
@@ -301,8 +297,6 @@ class ChordWorldEnv(gym.Env):
             if self.current_step % self.fix_fingers_interval == 0:
                 self.network.fix_fingers(node)
                 self.non_agent_fix_fingers_count += 1
-       
-
 
     def close(self):
         ''' 
@@ -443,8 +437,6 @@ class ChordNetwork:
         
         # Get the index of the current node in the sorted active nodes list
         node_index = active_nodes_ids.index(node.id)
-    
-
         # Assign predecessor (only one predecessor for this use case)
         predecessor_index = (node_index - 1) % total_number_of_active_nodes
         predecessor_node_id = active_nodes_ids[predecessor_index]
